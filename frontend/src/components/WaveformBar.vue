@@ -1,4 +1,3 @@
-// File: ./frontend/src/components/WaveformBar.vue
 <template>
   <div 
     class="wave-wrap" 
@@ -20,21 +19,21 @@ import { ref, onMounted, onUnmounted, watch } from 'vue'
 const props = defineProps({ 
   active: Boolean,
   audioData: Float32Array,
-  progress: Number
+  progress: Number,
+  analyser: Object
 })
 
-const emit = defineEmits(['seek', 'scrub', 'scrubStart', 'scrubEnd'])
+const emit = defineEmits(['seek'])
 
 const wrapRef = ref(null)
 const cvs = ref(null)
 let raf
-let timeOffset = 0
 
 let peaks =[]
 let cachedWidth = 0
 
 let isDragging = false
-const scrubProgress = ref(null) 
+const scrubProgress = ref(null)
 
 function getMouseProgress(e) {
   const rect = wrapRef.value.getBoundingClientRect()
@@ -45,29 +44,27 @@ function getMouseProgress(e) {
 function onMouseDown(e) {
   if (!props.audioData) return
   isDragging = true
-  emit('scrubStart')
   const p = getMouseProgress(e)
   scrubProgress.value = p
-  emit('scrub', p)
+  emit('seek', p)
+  if (!props.active) draw() // 暂停时强制重绘
 }
 
 function onMouseMove(e) {
   if (!isDragging) return
-  const p = getMouseProgress(e)
-  scrubProgress.value = p
-  emit('scrub', p)
+  scrubProgress.value = getMouseProgress(e)
+  if (!props.active) draw() // 暂停时拖拽强制重绘
 }
 
 function onMouseUp(e) {
   if (isDragging) {
     isDragging = false
     emit('seek', scrubProgress.value)
-    emit('scrubEnd')
     scrubProgress.value = null
+    if (!props.active) draw()
   }
 }
 
-// ...下方保留原有的 computePeaks、draw、各种 Watch/Lifecycle 原代码...
 function computePeaks(data, w) {
   peaks = new Float32Array(w * 2)
   const step = Math.ceil(data.length / w)
@@ -104,12 +101,14 @@ function draw() {
   ctx.scale(dpr, dpr)
   ctx.clearRect(0, 0, w, h)
 
-  if (!props.active && !props.audioData) {
+  if (!props.active && !props.audioData && !props.analyser) {
     ctx.fillStyle = '#e5e7eb'
     ctx.fillRect(0, h / 2 - 1, w, 2)
     ctx.restore()
     return
   }
+
+  const midY = h / 2
 
   if (props.audioData && props.audioData.length > 0) {
     if (cachedWidth !== w) {
@@ -117,43 +116,46 @@ function draw() {
       cachedWidth = w
     }
 
-    const midY = h / 2
     const currentP = scrubProgress.value !== null ? scrubProgress.value : (props.progress || 0)
     const splitIndex = Math.floor(w * currentP)
 
     ctx.fillStyle = '#bfdbfe' 
     for (let i = 0; i < splitIndex; i++) {
-      const min = peaks[i * 2]
-      const max = peaks[i * 2 + 1]
+      const min = peaks[i * 2], max = peaks[i * 2 + 1]
       const y = midY + min * midY
-      const height = Math.max(1, (max - min) * midY)
-      ctx.fillRect(i, y, 1, height)
+      ctx.fillRect(i, y, 1, Math.max(1, (max - min) * midY))
     }
 
     ctx.fillStyle = '#3b82f6'
     for (let i = splitIndex; i < w; i++) {
-      const min = peaks[i * 2]
-      const max = peaks[i * 2 + 1]
+      const min = peaks[i * 2], max = peaks[i * 2 + 1]
       const y = midY + min * midY
-      const height = Math.max(1, (max - min) * midY)
-      ctx.fillRect(i, y, 1, height)
+      ctx.fillRect(i, y, 1, Math.max(1, (max - min) * midY))
     }
-  } else {
-    ctx.fillStyle = '#a855f7'
+  } 
+  else if (props.analyser) {
+    const bufferLength = props.analyser.frequencyBinCount
+    const dataArray = new Uint8Array(bufferLength)
+    props.analyser.getByteFrequencyData(dataArray)
+
     const barWidth = 4
     const gap = 2
     const bars = Math.floor(w / (barWidth + gap))
-    timeOffset += 0.1
+
+    const minBin = 1
+    const maxBin = Math.floor(bufferLength * 0.45) 
+    const logMin = Math.log(minBin)
+    const logMax = Math.log(maxBin)
 
     for (let i = 0; i < bars; i++) {
-      let noise = Math.sin(i * 0.15 + timeOffset) * Math.cos(i * 0.27 - timeOffset)
-      let base = Math.sin(i * 0.05) * 0.5 + 0.5
-      let amplitude = Math.abs(noise * base) * (h / 2) * 0.8 + 2
-      amplitude += Math.random() * 3
-
+      const ratio = i / bars
+      const bin = Math.floor(Math.exp(logMin + ratio * (logMax - logMin)))
+      const value = dataArray[bin] || 0
+      const amplitude = Math.max((value / 255) * midY * 0.9, 2)
       const x = i * (barWidth + gap)
-      const y = h / 2 - amplitude
+      const y = midY - amplitude
       
+      ctx.fillStyle = `hsl(${260 + ratio * 60}, 80%, 65%)`
       ctx.beginPath()
       ctx.roundRect(x, y, barWidth, amplitude * 2, 2)
       ctx.fill()
@@ -180,6 +182,11 @@ watch(() => props.active, (v) => {
 watch(() => props.audioData, () => {
   cachedWidth = 0
   draw()
+})
+
+// 当外部只改变进度时（比如外部点按或快进），如果是暂停状态也要重绘
+watch(() => props.progress, () => {
+  if (!props.active && !isDragging) draw()
 })
 
 onUnmounted(() => {

@@ -1,4 +1,3 @@
-// File: ./frontend/src/engine/backend-engine.ts
 import { InferenceEngine } from './interface';
 
 export class BackendEngine extends InferenceEngine {
@@ -11,8 +10,9 @@ export class BackendEngine extends InferenceEngine {
   constructor() {
     super();
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = (import.meta as any).env?.DEV ? 'localhost:8000' : window.location.host;
-    this.url = `${protocol}//${host}/ws/inference`;
+    this.url = `${protocol}//${window.location.host}/ws/inference`;
+    // const host = (import.meta as any).env?.DEV ? 'localhost:8000' : window.location.host;
+    // this.url = `${protocol}//${host}/ws/inference`;
     this.ws = null;
     this.reqId = 0;
     this.pending = new Map();

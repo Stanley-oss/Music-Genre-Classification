@@ -1,4 +1,3 @@
-// File: ./frontend/src/engine/interface.ts
 export abstract class InferenceEngine {
   abstract get name(): string;
   abstract get mode(): 'local' | 'remote';

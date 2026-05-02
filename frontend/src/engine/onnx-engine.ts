@@ -1,4 +1,3 @@
-// File: ./frontend/src/engine/onnx-engine.ts
 import * as ort from 'onnxruntime-web';
 import { InferenceEngine } from './interface';
 
