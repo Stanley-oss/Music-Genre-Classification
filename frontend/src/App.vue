@@ -30,7 +30,7 @@
           🎤 Microphone
         </button>
         <button :disabled="!modelReady || !currentFile || isRunning || isDecoding" @click="startFile" class="btn btn-primary">
-          ▶️ Play File
+          ▶️ Play
         </button>
         <button :disabled="!isRunning" @click="stop" class="btn btn-danger">
           ⏹ Pause
