@@ -150,7 +150,7 @@ export class FileCapture implements AudioCapture {
     this.startTime = this.audioCtx!.currentTime;
     this.startOffsetSec = timeSec;
     
-    // 核心修复：预加载前 2.3 秒（约 50688 个采样点 22050Hz）的数据送入队列
+    // 预加载前 2.3 秒（约 50688 个采样点 22050Hz）的数据送入队列
     // 彻底解决寻址后由于 RingBuffer 缺水补 0 导致的白噪声被判定为 Metal/Rock 的 Bug！
     const preloadSec = 2.3; 
     this.lastProcessedOffset = Math.max(0, Math.floor((timeSec - preloadSec) * this.sr));

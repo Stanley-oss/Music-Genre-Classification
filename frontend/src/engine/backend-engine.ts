@@ -5,7 +5,7 @@ export class BackendEngine extends InferenceEngine {
   private ws: WebSocket | null;
   private reqId: number;
   private pending: Map<number, { resolve: Function, reject: Function }>;
-  private streamStarted: boolean; // 新增：流状态标识
+  private streamStarted: boolean; // 流状态标识
 
   constructor() {
     super();
@@ -54,7 +54,7 @@ export class BackendEngine extends InferenceEngine {
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
 
-      // 修复 3：在第一次推流前，先发送 start_stream 指令唤醒后端
+      // 在第一次推流前，先发送 start_stream 指令唤醒后端
       if (!this.streamStarted) {
         this.ws!.send(JSON.stringify({ command: 'start_stream' }));
         this.streamStarted = true;

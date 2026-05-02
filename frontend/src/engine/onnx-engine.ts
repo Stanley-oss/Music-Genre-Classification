@@ -20,12 +20,6 @@ export class OnnxEngine extends InferenceEngine {
   get patchSamples() { return 50688; } 
 
   async init(): Promise<void> {
-    // =========================================================
-    // 终极解法：直接删除 wasmPaths 覆盖！
-    // Vite 具备原生黑科技，会自动把 node_modules 里的 ORT WASM 提取出来
-    // 并在本地同源服务器上托管，彻底解决 404 和 CORS 问题！
-    // =========================================================
-
     // 限制单线程，避免由于浏览器不支持 SharedArrayBuffer 引起的跨域隔离报错
     ort.env.wasm.numThreads = 1;
     ort.env.wasm.simd = true;

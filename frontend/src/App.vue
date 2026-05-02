@@ -128,7 +128,19 @@ async function bootEngine() {
   }
 }
 
-watch(selectedModel, () => { if (!isRunning.value) bootEngine() })
+// 监听下拉框模型切换
+watch(selectedModel, () => { 
+  if (!isRunning.value) {
+    bootEngine()
+    
+    // 切换模型时，清空上一个模型的全部推理记忆
+    // 但故意保留 currentAudioData、currentTime 和 playbackProgress
+    // 这样波形图和播放进度能保持原样，只是排行榜和折线图重新开始记录
+    patchHistory.value = []
+    currentTop5.value =[]
+    finalTop5.value =[]
+  }
+})
 
 const statusText = computed(() => {
   if (modelLoading.value) return 'Initializing engine…'
@@ -233,6 +245,7 @@ async function startFile() {
   if (!currentFile.value) return
 
   if (capture && capture instanceof FileCapture && capture.buffer) {
+    finalTop5.value =[] // 解除排行榜锁定
     capture.resume(); isRunning.value = true
     inferTimer = setInterval(() => { inferenceLoop(); if (!capture.isActive) stop() }, 500)
     return
