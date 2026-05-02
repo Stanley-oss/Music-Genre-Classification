@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GTZAN 端到端 ONNX 推理</title>
+    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/ort.all.min.js"></script>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 800px; margin: 40px auto; padding: 0 20px; background: #f5f5f7; color: #333; }
+        h1 { font-size: 1.5rem; margin-bottom: 0.5rem; }
+        .card { background: #fff; border-radius: 12px; padding: 24px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+        .param-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin: 16px 0; }
+        .param { background: #f0f0f5; padding: 8px 12px; border-radius: 6px; font-size: 0.85rem; }
+        .param b { display: block; font-size: 0.75rem; color: #666; margin-bottom: 2px; }
+        input[type="file"] { display: none; }
+        label.file-btn { display: inline-block; background: #007aff; color: #fff; padding: 10px 18px; border-radius: 8px; cursor: pointer; font-weight: 500; }
+        label.file-btn:hover { background: #0051d5; }
+        .status { margin-top: 12px; font-size: 0.9rem; color: #555; min-height: 1.4em; }
+        .result { margin-top: 20px; }
+        .genre-list { list-style: none; padding: 0; margin: 0; }
+        .genre-item { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #eee; }
+        .genre-name { font-weight: 500; width: 100px; }
+        .bar-wrap { flex: 1; height: 8px; background: #e5e5ea; border-radius: 4px; margin: 0 12px; overflow: hidden; }
+        .bar { height: 100%; background: #34c759; border-radius: 4px; transition: width 0.4s ease; }
+        .genre-pct { width: 50px; text-align: right; font-variant-numeric: tabular-nums; }
+        .winner { color: #007aff; font-weight: 700; }
+        .loader { display: inline-block; width: 16px; height: 16px; border: 2px solid #ccc; border-top-color: #007aff; border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 6px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .hint { font-size: 0.8rem; color: #888; margin-top: 8px; }
+    </style>
+</head>
+<body>
+
+<h1>🎵 GTZAN 音乐流派分类</h1>
+<p style="color:#666; font-size:0.9rem;">端到端 ONNX 推理：WASM 后端直接执行 STFT → Mel → ResNet → Softmax。前端零特征工程代码。</p>
+
+<div class="card">
+    <div class="param-grid">
+        <div class="param"><b>采样率</b>22050 Hz</div>
+        <div class="param"><b>FFT</b>2048</div>
+        <div class="param"><b>Hop</b>512</div>
+        <div class="param"><b>Mel bins</b>128</div>
+        <div class="param"><b>Frames</b>96</div>
+        <div class="param"><b>Patch 长度</b><span id="patch-len">-</span> samples</div>
+    </div>
+    
+    <div style="margin-top:12px;">
+        <label class="file-btn" for="audio-input">选择音频文件</label>
+        <input type="file" id="audio-input" accept="audio/*">
+        <span id="filename" style="margin-left:10px; font-size:0.9rem; color:#555;"></span>
+    </div>
+    <div class="status" id="status">正在初始化 ONNX Runtime…</div>
+    <div class="hint">提示：请通过本地 HTTP 服务器打开本页面（如 <code>python -m http.server</code>），否则浏览器可能因 CORS 无法加载 .onnx 模型。</div>
+</div>
+
+<div class="card result" id="result-card" style="display:none;">
+    <h3>预测结果</h3>
+    <div style="margin-bottom:12px; font-size:1.1rem;">
+        最可能流派：<span id="top-genre" class="winner">-</span> 
+        <span id="top-conf" style="color:#666; font-size:0.9rem;">(-)</span>
+    </div>
+    <ul class="genre-list" id="genre-list"></ul>
+</div>
+
+<script>
+// ================= 配置 =================
+const CONFIG = {
+    sr: 22050,
+    n_fft: 2048,
+    hop_length: 512,
+    n_mels: 128,
+    frames: 96,
+    num_classes: 10,
+    overlap: 0.0,
+    include_last: true,
+    batch_size: 64,
+    model_path: './gtzan_e2e.onnx',
+};
+
+CONFIG.samples_per_patch = CONFIG.n_fft + CONFIG.hop_length * (CONFIG.frames - 1);
+document.getElementById('patch-len').textContent = CONFIG.samples_per_patch;
+
+const GENRES = [
+    "blues","classical","country","disco","hiphop",
+    "jazz","metal","pop","reggae","rock"
+];
+
+// ================= ONNX Runtime =================
+ort.env.wasm.numThreads = 1;   // 避免跨域 COOP/COEP 限制
+ort.env.wasm.simd = true;
+
+let session = null;
+
+async function initModel() {
+    const status = document.getElementById('status');
+    try {
+        status.innerHTML = '<span class="loader"></span> 正在加载 ONNX 模型…';
+        session = await ort.InferenceSession.create(CONFIG.model_path, {
+            executionProviders: ['wasm'],
+            graphOptimizationLevel: 'all'
+        });
+        status.textContent = '模型就绪，请选择音频文件。';
+    } catch (e) {
+        status.textContent = '模型加载失败: ' + e.message;
+        console.error(e);
+    }
+}
+
+// ================= Web Audio 解码 & 重采样 =================
+async function decodeAndResample(file) {
+    const arrayBuffer = await file.arrayBuffer();
+    const tmpCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const buf = await tmpCtx.decodeAudioData(arrayBuffer);
+    tmpCtx.close();
+
+    // 手动混音到单声道
+    let mono;
+    if (buf.numberOfChannels === 1) {
+        mono = buf.getChannelData(0);
+    } else {
+        mono = new Float32Array(buf.length);
+        for (let c = 0; c < buf.numberOfChannels; c++) {
+            const ch = buf.getChannelData(c);
+            for (let i = 0; i < buf.length; i++) mono[i] += ch[i];
+        }
+        const inv = 1.0 / buf.numberOfChannels;
+        for (let i = 0; i < buf.length; i++) mono[i] *= inv;
+    }
+
+    if (buf.sampleRate === CONFIG.sr) return mono;
+
+    // 用 OfflineAudioContext 重采样
+    const offlineCtx = new OfflineAudioContext(
+        1, Math.ceil(mono.length * CONFIG.sr / buf.sampleRate), CONFIG.sr
+    );
+    const src = offlineCtx.createBufferSource();
+    const srcBuf = offlineCtx.createBuffer(1, mono.length, buf.sampleRate);
+    srcBuf.copyToChannel(mono, 0);
+    src.buffer = srcBuf;
+    src.connect(offlineCtx.destination);
+    src.start();
+    const rendered = await offlineCtx.startRendering();
+    return rendered.getChannelData(0);
+}
+
+// ================= 切片（纯 JS 数组操作） =================
+function splitToPatches(samples) {
+    const sp = CONFIG.samples_per_patch;
+    const step = Math.floor(sp * (1.0 - CONFIG.overlap));
+    const patches = [];
+
+    if (samples.length < sp) {
+        const pad = new Float32Array(sp);
+        pad.set(samples);
+        return [pad];
+    }
+
+    for (let start = 0; start + sp <= samples.length; start += step) {
+        patches.push(samples.slice(start, start + sp));
+    }
+
+    if (CONFIG.include_last) {
+        const lastStart = (patches.length * step);
+        if (lastStart < samples.length) {
+            const tail = new Float32Array(sp);
+            tail.set(samples.slice(lastStart));
+            patches.push(tail);
+        }
+    }
+    return patches;
+}
+
+// ================= 推理 =================
+async function runInference(patches) {
+    const probs = [];
+    const inputName = session.inputNames[0];
+    const outputName = session.outputNames[0];
+
+    for (let i = 0; i < patches.length; i += CONFIG.batch_size) {
+        const batch = patches.slice(i, i + CONFIG.batch_size);
+        const B = batch.length;
+        const flat = new Float32Array(B * CONFIG.samples_per_patch);
+        for (let b = 0; b < B; b++) {
+            flat.set(batch[b], b * CONFIG.samples_per_patch);
+        }
+        const tensor = new ort.Tensor('float32', flat, [B, CONFIG.samples_per_patch]);
+        const feeds = {}; feeds[inputName] = tensor;
+        const results = await session.run(feeds);
+        probs.push(results[outputName]);
+    }
+
+    // 平均所有 patch 的概率
+    const total = new Float32Array(CONFIG.num_classes).fill(0);
+    let count = 0;
+    for (const p of probs) {
+        const data = p.data;
+        const B = p.dims[0];
+        for (let b = 0; b < B; b++) {
+            for (let c = 0; c < CONFIG.num_classes; c++) {
+                total[c] += data[b * CONFIG.num_classes + c];
+            }
+            count++;
+        }
+    }
+    for (let c = 0; c < CONFIG.num_classes; c++) total[c] /= count;
+    return total;
+}
+
+// ================= UI 渲染 =================
+function renderResult(meanProb) {
+    const list = document.getElementById('genre-list');
+    list.innerHTML = '';
+    const indexed = meanProb.map((p, i) => ({ genre: GENRES[i], prob: p, idx: i }));
+    indexed.sort((a, b) => b.prob - a.prob);
+
+    const top = indexed[0];
+    document.getElementById('top-genre').textContent = top.genre.toUpperCase();
+    document.getElementById('top-conf').textContent = (top.prob * 100).toFixed(2) + '%';
+
+    for (const item of indexed) {
+        const li = document.createElement('li');
+        li.className = 'genre-item';
+        const pct = (item.prob * 100).toFixed(2);
+        li.innerHTML = `
+            <span class="genre-name">${item.genre}</span>
+            <div class="bar-wrap"><div class="bar" style="width:${pct}%"></div></div>
+            <span class="genre-pct">${pct}%</span>
+        `;
+        list.appendChild(li);
+    }
+    document.getElementById('result-card').style.display = 'block';
+}
+
+// ================= 事件绑定 =================
+document.getElementById('audio-input').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    document.getElementById('filename').textContent = file.name;
+    const status = document.getElementById('status');
+    status.innerHTML = '<span class="loader"></span> 正在解码音频…';
+
+    try {
+        const samples = await decodeAndResample(file);
+        status.textContent = `音频解码完成，共 ${samples.length} 样本，正在切片…`;
+        const patches = splitToPatches(samples);
+        status.textContent = `生成 ${patches.length} 个 patch，开始推理…`;
+        const meanProb = await runInference(patches);
+        renderResult(Array.from(meanProb));
+        status.textContent = '推理完成。';
+    } catch (err) {
+        status.textContent = '错误: ' + err.message;
+        console.error(err);
+    }
+});
+
+// 启动
+initModel();
+</script>
+
+</body>
+</html>
