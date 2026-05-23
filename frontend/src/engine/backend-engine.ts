@@ -5,7 +5,7 @@ export class BackendEngine extends InferenceEngine {
   private ws: WebSocket | null;
   private reqId: number;
   private pending: Map<number, { resolve: Function, reject: Function }>;
-  private streamStarted: boolean; // 流状态标识
+  private streamStarted: boolean;
 
   constructor() {
     super();
@@ -29,18 +29,24 @@ export class BackendEngine extends InferenceEngine {
 
   async init(): Promise<void> {
     this.ws = new WebSocket(this.url);
+    // 声明接收类型（尽管后端发来的是JSON字符串，规范写上不影响）
+    this.ws.binaryType = 'arraybuffer';
+    
     await new Promise<void>((resolve, reject) => {
       this.ws!.onopen = () => resolve();
       this.ws!.onerror = (e) => reject(e);
     });
 
     this.ws!.onmessage = (ev) => {
-      const msg = JSON.parse(ev.data);
-      if (msg.type === 'patch' && msg.request_id !== undefined) {
-        const p = this.pending.get(msg.request_id);
-        if (p) {
-          this.pending.delete(msg.request_id);
-          p.resolve(new Float32Array(msg.probabilities));
+      // 后端返回的概率依然是极小的 JSON
+      if (typeof ev.data === 'string') {
+        const msg = JSON.parse(ev.data);
+        if (msg.type === 'patch' && msg.request_id !== undefined) {
+          const p = this.pending.get(msg.request_id);
+          if (p) {
+            this.pending.delete(msg.request_id);
+            p.resolve(new Float32Array(msg.probabilities));
+          }
         }
       }
     };
@@ -54,19 +60,29 @@ export class BackendEngine extends InferenceEngine {
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
 
-      // 在第一次推流前，先发送 start_stream 指令唤醒后端
+      // 控制信令依然走 JSON（体积极小）
       if (!this.streamStarted) {
         this.ws!.send(JSON.stringify({ command: 'start_stream' }));
         this.streamStarted = true;
       }
 
-      this.ws!.send(JSON.stringify({
-        command: 'audio_patch',
-        request_id: id,
-        data: Array.from(audioPatch),
-        sr,
-        timestamp: Date.now()
-      }));
+      // 核心修复：纯二进制传输
+      // Header 长度: 16 Bytes
+      // [0-3]: request_id (Uint32)
+      //[4-7]: sample_rate (Uint32)
+      // [8-15]: timestamp (Float64)
+      const buffer = new ArrayBuffer(16 + audioPatch.byteLength);
+      const view = new DataView(buffer);
+      view.setUint32(0, id, true); // true = Little-Endian
+      view.setUint32(4, sr, true);
+      view.setFloat64(8, Date.now(), true);
+      
+      // 数据段：直接将 Float32 注入共享内存
+      const audioView = new Float32Array(buffer, 16);
+      audioView.set(audioPatch);
+
+      // 直接发送二进制 Buffer
+      this.ws!.send(buffer);
 
       setTimeout(() => {
         if (this.pending.has(id)) {
@@ -81,18 +97,20 @@ export class BackendEngine extends InferenceEngine {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       throw new Error('WebSocket disconnected');
     }
-    this.streamStarted = false; // 重置标识
+    this.streamStarted = false;
 
     return new Promise((resolve, reject) => {
       const handler = (ev: MessageEvent) => {
-        const msg = JSON.parse(ev.data);
-        if (msg.type === 'final') {
-          this.ws!.removeEventListener('message', handler);
-          resolve({ top5: msg.top5, distribution: msg.distribution });
-        }
-        if (msg.type === 'error') {
-          this.ws!.removeEventListener('message', handler);
-          reject(new Error(msg.message));
+        if (typeof ev.data === 'string') {
+          const msg = JSON.parse(ev.data);
+          if (msg.type === 'final') {
+            this.ws!.removeEventListener('message', handler);
+            resolve({ top5: msg.top5, distribution: msg.distribution });
+          }
+          if (msg.type === 'error') {
+            this.ws!.removeEventListener('message', handler);
+            reject(new Error(msg.message));
+          }
         }
       };
       this.ws!.addEventListener('message', handler);
