@@ -1,0 +1,3 @@
+backbone,test_segment_acc,test_segment_f1,test_song_acc,test_song_f1
+mlp_best_seed2025,0.7478,0.7438,0.8133,0.806
+rnn_best_seed2025,0.6641,0.6534,0.72,0.714
