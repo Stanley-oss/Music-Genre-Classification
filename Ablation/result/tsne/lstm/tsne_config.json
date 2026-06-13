@@ -1,0 +1,23 @@
+{
+  "root_dir": "E:\\dl",
+  "ckpt": "E:\\dl\\emf_train_runs_seed2025_backbones\\lstm_60ep_s2025\\best_emf_v1.pt",
+  "nodn": {
+    "used": false
+  },
+  "split": "test",
+  "max_samples": 1000,
+  "selected_clips": 1000,
+  "t_value": 0.55,
+  "perplexity": 30.0,
+  "seed": 2025,
+  "out_dir": "E:\\dl\\tsne_seed2025_backbones\\lstm",
+  "mean": -12.980877754135463,
+  "std": 16.636949166037354,
+  "applied_paths": {
+    "ROOT_DIR": "E:\\dl",
+    "SEG_DIR": "E:\\dl\\preprocessed\\seg_3s_base",
+    "MEL_DIR": "E:\\dl\\mel_cache\\lm3_base_v1",
+    "OUT_DIR": "E:\\dl\\emf_train_runs_seed2025_backbones\\lstm_60ep_s2025",
+    "TARGET_FRAMES": "130"
+  }
+}
