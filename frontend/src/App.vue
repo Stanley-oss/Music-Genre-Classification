@@ -2,7 +2,7 @@
   <div class="app-container">
     <header class="header">
       <h1>Music Genre Finder</h1>
-      <p>Find Genre of any audio for free</p>
+      <p>Find Genre of any audio</p>
     </header>
 
     <div class="upload-container">
@@ -22,8 +22,9 @@
 
       <div class="controls">
         <select v-model="selectedModel" :disabled="isRunning || isDecoding">
-          <option value="onnx">Browser ONNX (WASM) — ResNet18</option>
-          <option value="backend">Server GPU — ResNet18</option>
+          <option value="cnn">CNN</option>
+          <option value="lstm">LSTM</option>
+          <option value="resnet">ResNet</option>
         </select>
 
         <button :disabled="!modelReady || isRunning || isDecoding" @click="startMic" class="btn btn-primary">
@@ -76,7 +77,7 @@ import WaveformBar from './components/WaveformBar.vue'
 import GenreChart from './components/GenreChart.vue'
 import TopGenres from './components/TopGenres.vue'
 
-const selectedModel = ref('onnx')
+const selectedModel = ref('cnn')
 const engine = shallowRef(null)
 const ringBuffer = shallowRef(null)
 
@@ -102,7 +103,7 @@ let progressRaf = null
 let isInferencing = false
 
 function createEngine(type) {
-  if (type === 'onnx') return new OnnxEngine()
+  if (['cnn', 'lstm', 'resnet'].includes(type)) return new OnnxEngine(type)
   if (type === 'backend') return new BackendEngine()
   throw new Error('Unknown engine type')
 }
@@ -122,6 +123,7 @@ async function bootEngine() {
     resetRingBuffer()
     modelReady.value = true
   } catch (e) {
+    console.error('bootEngine Error:', e)
     modelReady.value = false
   } finally {
     modelLoading.value = false

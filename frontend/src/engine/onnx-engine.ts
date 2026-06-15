@@ -4,14 +4,16 @@ import { InferenceEngine } from './interface';
 export class OnnxEngine extends InferenceEngine {
   private modelUrl: string;
   private session: ort.InferenceSession | null;
+  private temporalKind: string;
 
-  constructor(modelUrl = '/models/gtzan_e2e.onnx') {
+  constructor(temporalKind = 'cnn') {
     super();
-    this.modelUrl = modelUrl;
+    this.temporalKind = temporalKind;
+    this.modelUrl = `/models/emfv1_${temporalKind}_e2e.onnx`;
     this.session = null;
   }
 
-  get name() { return 'Browser ONNX (WASM) — ResNet18'; }
+  get name() { return `Browser ONNX (WASM) — ${this.temporalKind.toUpperCase()}`; }
   get mode(): 'local' | 'remote' { return 'local'; }
   get genres() {
     return['blues','classical','country','disco','hiphop','jazz','metal','pop','reggae','rock'];

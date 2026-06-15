@@ -20,14 +20,12 @@ from scipy import ndimage, signal
 # =========================
 # Fixed paths (Windows)
 # =========================
-ROOT_DIR = Path(r"D:\code\codepy\dl")
-RAW_DIR = Path(r"D:\code\codepy\dl\genres_original")
-OUT_DIR = Path(r"D:\code\codepy\dl\preprocessed")
-MANIFEST_DIR = Path(r"D:\code\codepy\dl\preprocessed\manifests")
+ROOT_DIR = Path("/home/stanley/dev/Music-Genre-Classification")
+RAW_DIR = ROOT_DIR / "gtzan_dataset" / "genres_original"
+OUT_DIR = ROOT_DIR / "Ablation" / "code" / "preprocessed"
+MANIFEST_DIR = OUT_DIR / "manifests"
 ARTIST_MAP_CANDIDATES = [
-    Path(r"D:\code\codepy\dl\artist_map.csv"),
-    Path(r"D:\code\codepy\dl\GTZAN_SONGTITLE_ARTIST.csv"),
-    Path(r"D:\code\codepy\dl\GTZAN_SONGTITLE_ARTIST(1).csv"),
+    ROOT_DIR / "gtzan_dataset" / "GTZAN_SONGTITLE_ARTIST.csv",
 ]
 
 # =========================

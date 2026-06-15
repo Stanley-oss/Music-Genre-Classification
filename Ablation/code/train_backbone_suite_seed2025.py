@@ -18,7 +18,7 @@ import train_musicflownet as tm
 # v1_full_s2025 ties for top song accuracy and has the best song macro-F1.
 SEED = 2025
 EPOCHS = 60
-RUN_ORDER = ["cnn", "resnet", "lstm", "rnn", "mlp", "transformer"]
+RUN_ORDER = ["cnn", "resnet", "lstm"]
 RUN_ROOT = ROOT_DIR / "emf_train_runs_seed2025_backbones"
 SKIP_FINISHED = True
 
