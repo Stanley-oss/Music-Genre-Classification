@@ -171,6 +171,7 @@ export class FileCapture implements AudioCapture {
   }
 
   pause() {
+    if (!this._isActive && !this.source) return;
     this._isActive = false;
     if (this.interval) clearInterval(this.interval);
     try { this.source?.stop(); } catch(e) {}

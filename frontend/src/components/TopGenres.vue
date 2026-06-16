@@ -2,7 +2,7 @@
   <div class="top5-wrapper">
     <h3 class="title">Top 5 Genres</h3>
     <div class="list">
-      <div v-for="(item, idx) in top5" :key="item.genre" class="genre-row">
+      <div v-for="(item, idx) in top5" :key="item.genre" class="genre-row" @click="copyGenre(item.genre)" :title="'Copy ' + item.genre">
         <div class="left">
           <svg class="icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2"></path>
@@ -10,7 +10,8 @@
           <span class="genre-name">{{ item.genre }}</span>
         </div>
         <div class="right">
-          <span class="pct">{{ pct(item.probability) }}</span>
+          <span class="pct" v-if="copied === item.genre" style="color: #10b981; font-size: 0.95rem;">Copied!</span>
+          <span class="pct" v-else>{{ pct(item.probability) }}</span>
         </div>
         <div class="progress-bg">
            <div class="progress-fill" :style="{ width: pct(item.probability) }"></div>
@@ -21,9 +22,22 @@
 </template>
 
 <script setup>
+import { ref } from 'vue'
 const props = defineProps({ top5: Array })
 const pct = (p) => (p * 100).toFixed(1) + '%'
+
+const copied = ref(null)
+const copyGenre = async (genre) => {
+  try {
+    await navigator.clipboard.writeText(genre)
+    copied.value = genre
+    setTimeout(() => { if (copied.value === genre) copied.value = null }, 1500)
+  } catch (e) {
+    console.error('Failed to copy', e)
+  }
+}
 </script>
+
 
 <style scoped>
 .top5-wrapper {
@@ -60,6 +74,11 @@ const pct = (p) => (p * 100).toFixed(1) + '%'
   border: 1px solid #f3f4f6;
   position: relative;
   overflow: hidden;
+  cursor: pointer;
+  transition: transform 0.1s, box-shadow 0.1s;
+}
+.genre-row:active {
+  transform: scale(0.98);
 }
 .left {
   display: flex;
