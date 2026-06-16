@@ -277,30 +277,23 @@ async function inferenceLoop() {
     }
 
     if (result.cleanEmb) {
-      cleanEmbHistory.value.push(Array.from(result.cleanEmb))
-      noisyEmbHistory.value.push(Array.from(result.noisyEmb))
-      denoisedEmbHistory.value.push(Array.from(result.denoisedEmb))
+      cleanEmbHistory.value = [...cleanEmbHistory.value, Array.from(result.cleanEmb)]
+      noisyEmbHistory.value = [...noisyEmbHistory.value, Array.from(result.noisyEmb)]
+      denoisedEmbHistory.value = [...denoisedEmbHistory.value, Array.from(result.denoisedEmb)]
       
       const cp = result.cleanProbs || result.probs
       let maxIdx = 0
       for (let i = 1; i < cp.length; i++) { if (cp[i] > cp[maxIdx]) maxIdx = i }
-      genreIndexHistory.value.push(maxIdx)
-
-      triggerRef(cleanEmbHistory)
-      triggerRef(noisyEmbHistory)
-      triggerRef(denoisedEmbHistory)
-      triggerRef(genreIndexHistory)
+      genreIndexHistory.value = [...genreIndexHistory.value, maxIdx]
     }
     
-    let existingIdx = patchHistory.value.findIndex(h => h.t === quantizedT)
+    let newHistory =[...patchHistory.value]
+    let existingIdx = newHistory.findIndex(h => h.t === quantizedT)
     
-    if (existingIdx !== -1) {
-      patchHistory.value[existingIdx] = { t: quantizedT, probs: probsArr }
-    } else { 
-      patchHistory.value.push({ t: quantizedT, probs: probsArr })
-      patchHistory.value.sort((a, b) => a.t - b.t)
-    }
-    triggerRef(patchHistory)
+    if (existingIdx !== -1) newHistory[existingIdx] = { t: quantizedT, probs: probsArr }
+    else { newHistory.push({ t: quantizedT, probs: probsArr }); newHistory.sort((a, b) => a.t - b.t) }
+    
+    patchHistory.value = newHistory
     
     currentTime.value = rawTime 
     recalculateTop5()
