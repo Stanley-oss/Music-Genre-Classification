@@ -82,6 +82,44 @@ function computePeaks(data, w) {
   }
 }
 
+let offscreenLight = null;
+let offscreenDark = null;
+
+function renderWaveformToOffscreen(w, h, midY) {
+  const dpr = window.devicePixelRatio || 1;
+  const cw = w * dpr;
+  const ch = h * dpr;
+  
+  if (!offscreenLight) offscreenLight = document.createElement('canvas');
+  if (!offscreenDark) offscreenDark = document.createElement('canvas');
+  
+  offscreenLight.width = cw; offscreenLight.height = ch;
+  offscreenDark.width = cw; offscreenDark.height = ch;
+  
+  const ctxLight = offscreenLight.getContext('2d', { alpha: false });
+  const ctxDark = offscreenDark.getContext('2d', { alpha: false });
+  
+  // Fill background
+  ctxLight.fillStyle = '#f9fafb'; // matching container background
+  ctxLight.fillRect(0, 0, cw, ch);
+  ctxDark.fillStyle = '#f9fafb';
+  ctxDark.fillRect(0, 0, cw, ch);
+  
+  ctxLight.scale(dpr, dpr);
+  ctxDark.scale(dpr, dpr);
+  
+  ctxLight.fillStyle = '#bfdbfe';
+  ctxDark.fillStyle = '#3b82f6';
+  
+  for (let i = 0; i < w; i++) {
+    const min = peaks[i * 2], max = peaks[i * 2 + 1];
+    const y = midY + min * midY;
+    const barH = Math.max(1, (max - min) * midY);
+    ctxLight.fillRect(i, y, 1, barH);
+    ctxDark.fillRect(i, y, 1, barH);
+  }
+}
+
 function draw() {
   const el = cvs.value
   if (!el || !el.parentElement) return
@@ -96,10 +134,16 @@ function draw() {
     cachedWidth = 0
   }
 
-  const ctx = el.getContext('2d')
+  const ctx = el.getContext('2d', { alpha: false })
   ctx.save()
+  
   ctx.scale(dpr, dpr)
-  ctx.clearRect(0, 0, w, h)
+  
+  // Only clear if we are not going to fully overwrite with opaque offscreen images
+  if (!props.audioData || props.audioData.length === 0) {
+    ctx.fillStyle = '#f9fafb'
+    ctx.fillRect(0, 0, w, h)
+  }
 
   if (!props.active && !props.audioData && !props.analyser) {
     ctx.fillStyle = '#e5e7eb'
@@ -113,25 +157,27 @@ function draw() {
   if (props.audioData && props.audioData.length > 0) {
     if (cachedWidth !== w) {
       computePeaks(props.audioData, w)
+      renderWaveformToOffscreen(w, h, midY)
       cachedWidth = w
     }
 
     const currentP = scrubProgress.value !== null ? scrubProgress.value : (props.progress || 0)
     const splitIndex = Math.floor(w * currentP)
 
-    ctx.fillStyle = '#bfdbfe' 
-    for (let i = 0; i < splitIndex; i++) {
-      const min = peaks[i * 2], max = peaks[i * 2 + 1]
-      const y = midY + min * midY
-      ctx.fillRect(i, y, 1, Math.max(1, (max - min) * midY))
+    // Draw dark blue (played portion)
+    if (splitIndex > 0) {
+      ctx.drawImage(offscreenDark, 0, 0, splitIndex * dpr, h * dpr, 0, 0, splitIndex, h)
     }
-
-    ctx.fillStyle = '#3b82f6'
-    for (let i = splitIndex; i < w; i++) {
-      const min = peaks[i * 2], max = peaks[i * 2 + 1]
-      const y = midY + min * midY
-      ctx.fillRect(i, y, 1, Math.max(1, (max - min) * midY))
+    
+    // Draw light blue (unplayed portion)
+    if (splitIndex < w) {
+      const remain = w - splitIndex
+      ctx.drawImage(offscreenLight, splitIndex * dpr, 0, remain * dpr, h * dpr, splitIndex, 0, remain, h)
     }
+    
+    // Draw play cursor
+    ctx.fillStyle = '#ef4444' // red cursor
+    ctx.fillRect(splitIndex, 0, 2, h)
   } 
   else if (props.analyser) {
     const bufferLength = props.analyser.frequencyBinCount

@@ -128,6 +128,8 @@ export class FileCapture implements AudioCapture {
       const targetOffset = Math.floor(currTime * this.sr);
       if (targetOffset >= this.mono!.length) {
         this.pause();
+        this.startOffsetSec = 0;
+        this.lastProcessedOffset = 0;
         return;
       }
       if (targetOffset > this.lastProcessedOffset) {

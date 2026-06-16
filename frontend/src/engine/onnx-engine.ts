@@ -25,7 +25,7 @@ export class OnnxEngine extends InferenceEngine {
     // 限制单线程，避免由于浏览器不支持 SharedArrayBuffer 引起的跨域隔离报错
     ort.env.wasm.numThreads = 1;
     ort.env.wasm.simd = true;
-    ort.env.wasm.proxy = false; 
+    ort.env.wasm.proxy = true; 
 
     this.session = await ort.InferenceSession.create(this.modelUrl, {
       executionProviders: ['wasm'],
@@ -34,7 +34,18 @@ export class OnnxEngine extends InferenceEngine {
     });
   }
 
-  async predict(audioPatch: Float32Array, sr = 22050): Promise<Float32Array> {
+  async predict(audioPatch: Float32Array, sr = 22050): Promise<{
+    probs: Float32Array;
+    mel: Float32Array;
+    shallowMap?: Float32Array;
+    deepMap?: Float32Array;
+    shallowShape?: number[];
+    deepShape?: number[];
+    hiddenState?: Float32Array;
+    cellState?: Float32Array;
+    identityEnergy?: Float32Array;
+    residualEnergy?: Float32Array;
+  }> {
     if (!this.session) throw new Error('Model not initialized');
 
     let patch = audioPatch;
@@ -49,7 +60,21 @@ export class OnnxEngine extends InferenceEngine {
     const tensor = new ort.Tensor('float32', patch, [1, this.patchSamples]);
     const feeds: Record<string, ort.Tensor> = { [this.session.inputNames[0]]: tensor };
     const results = await this.session.run(feeds);
-    return results[this.session.outputNames[0]].data as Float32Array;
+    
+    return {
+      probs: results['probabilities']?.data as Float32Array || new Float32Array(0),
+      mel: results['mel']?.data as Float32Array || new Float32Array(0),
+      freqMap: results['freq_map']?.data as Float32Array,
+      timeMap: results['time_map']?.data as Float32Array,
+      freqShape: results['freq_map']?.dims ? Array.from(results['freq_map'].dims as readonly number[]) : undefined,
+      timeShape: results['time_map']?.dims ? Array.from(results['time_map'].dims as readonly number[]) : undefined,
+      cleanProbs: results['clean_probs']?.data as Float32Array,
+      noisyProbs: results['noisy_probs']?.data as Float32Array,
+      denoisedProbs: results['denoised_probs']?.data as Float32Array,
+      cleanEmb: results['clean_emb']?.data as Float32Array,
+      noisyEmb: results['noisy_emb']?.data as Float32Array,
+      denoisedEmb: results['denoised_emb']?.data as Float32Array,
+    };
   }
 
   async finalize(patchProbs: Float32Array[]): Promise<{ top5: any[], distribution: Record<string, number> }> {

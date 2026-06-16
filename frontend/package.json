@@ -11,6 +11,7 @@
   "dependencies": {
     "echarts": "^5.5.0",
     "onnxruntime-web": "^1.18.0",
+    "umap-js": "^1.4.0",
     "vue": "^3.4.21",
     "vue-echarts": "^6.7.0"
   },

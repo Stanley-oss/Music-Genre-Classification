@@ -45,14 +45,29 @@ export class BackendEngine extends InferenceEngine {
           const p = this.pending.get(msg.request_id);
           if (p) {
             this.pending.delete(msg.request_id);
-            p.resolve(new Float32Array(msg.probabilities));
+            p.resolve({
+              probs: new Float32Array(msg.probabilities),
+              mel: new Float32Array(0),
+              activations: new Float32Array(0)
+            });
           }
         }
       }
     };
   }
 
-  async predict(audioPatch: Float32Array, sr = 22050): Promise<Float32Array> {
+  async predict(audioPatch: Float32Array, sr = 22050): Promise<{
+    probs: Float32Array;
+    mel: Float32Array;
+    shallowMap?: Float32Array;
+    deepMap?: Float32Array;
+    shallowShape?: number[];
+    deepShape?: number[];
+    hiddenState?: Float32Array;
+    cellState?: Float32Array;
+    identityEnergy?: Float32Array;
+    residualEnergy?: Float32Array;
+  }> {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       throw new Error('WebSocket disconnected');
     }

@@ -2,15 +2,13 @@
   <div class="app-container">
     <header class="header">
       <h1>Music Genre Finder</h1>
-      <p>Find Genre of any audio</p>
-    </header>
-
-    <div class="upload-container">
       <p class="upload-text">
         Drag and drop your audio files anywhere on the screen<br>
         or use the designated upload area below.
       </p>
+    </header>
 
+    <div class="upload-container">
       <div class="upload-box" @dragover.prevent @drop.prevent="onDrop" @click="onUploadClick">
         <input ref="fileInput" type="file" accept="audio/*" hidden @change="onFileSelect" />
         <span>Click here to upload files</span>
@@ -62,7 +60,29 @@
         />
       </div>
 
-      <TopGenres :top5="finalTop5.length ? finalTop5 : currentTop5" />
+      <!-- Real-time visualizations row -->
+      <div class="dashboard-row">
+        <div class="dash-col dash-col-mel">
+          <MelSpectrogram :data="currentMel" />
+        </div>
+        <div class="dash-col dash-col-act">
+          <CnnFeatureViz 
+            :mel="currentMel" :shallowMap="freqMap" :deepMap="timeMap"
+            :shallowShape="freqShape" :deepShape="timeShape" />
+        </div>
+        <div class="dash-col dash-col-top5">
+          <TopGenres :top5="finalTop5.length ? finalTop5 : currentTop5" />
+        </div>
+      </div>
+
+      <!-- UMAP Plot Row -->
+      <UmapViz 
+        :modelType="selectedModel"
+        :cleanEmbHistory="cleanEmbHistory"
+        :noisyEmbHistory="noisyEmbHistory"
+        :denoisedEmbHistory="denoisedEmbHistory"
+        :genreIndexHistory="genreIndexHistory"
+      />
     </div>
   </div>
 </template>
@@ -76,6 +96,9 @@ import { AudioRingBuffer } from './audio/ring-buffer'
 import WaveformBar from './components/WaveformBar.vue'
 import GenreChart from './components/GenreChart.vue'
 import TopGenres from './components/TopGenres.vue'
+import MelSpectrogram from './components/MelSpectrogram.vue'
+import CnnFeatureViz from './components/CnnFeatureViz.vue'
+import UmapViz from './components/UmapViz.vue'
 
 const selectedModel = ref('cnn')
 const engine = shallowRef(null)
@@ -92,10 +115,22 @@ const playbackProgress = ref(0)
 const audioDuration = ref(0) 
 const micAnalyser = ref(null)
 
-const patchHistory = ref([])
-const currentTop5 = ref([])
-const finalTop5 = ref([])
+const patchHistory = shallowRef([])
+const currentTop5 = shallowRef([])
+const finalTop5 = shallowRef([])
 const currentTime = ref(0)
+const currentMel = shallowRef(null)
+const freqMap = shallowRef(null)
+const timeMap = shallowRef(null)
+const freqShape = shallowRef(null)
+const timeShape = shallowRef(null)
+const currentCleanProbs = shallowRef(null)
+const currentNoisyProbs = shallowRef(null)
+const currentDenoisedProbs = shallowRef(null)
+const cleanEmbHistory = shallowRef([])
+const noisyEmbHistory = shallowRef([])
+const denoisedEmbHistory = shallowRef([])
+const genreIndexHistory = shallowRef([])
 
 let capture = null
 let inferTimer = null
@@ -141,6 +176,9 @@ watch(selectedModel, () => {
     patchHistory.value = []
     currentTop5.value =[]
     finalTop5.value =[]
+    currentMel.value = null
+    freqMap.value = null; timeMap.value = null;
+    currentCleanProbs.value = null; currentNoisyProbs.value = null; currentDenoisedProbs.value = null;
   }
 })
 
@@ -195,7 +233,7 @@ function recalculateTop5() {
 }
 
 function loopProgress() {
-  if (capture && capture.isActive && capture instanceof FileCapture) {
+  if (capture && capture instanceof FileCapture) {
     playbackProgress.value = capture.currentTime / capture.duration
   }
   progressRaf = requestAnimationFrame(loopProgress)
@@ -214,8 +252,36 @@ async function inferenceLoop() {
   let quantizedT = Math.round(rawTime * 2) / 2
 
   try {
-    const probs = await engine.value.predict(snapshot, engine.value.sampleRate)
-    const probsArr = Array.from(probs)
+    const result = await engine.value.predict(snapshot, engine.value.sampleRate)
+    const probsArr = Array.from(result.probs)
+    
+    // Update visualizations
+    if (result.mel && result.mel.length > 0) currentMel.value = result.mel
+    
+    if (result.freqMap && result.timeMap) {
+      freqMap.value = result.freqMap
+      timeMap.value = result.timeMap
+      freqShape.value = result.freqShape
+      timeShape.value = result.timeShape
+    }
+
+    if (result.cleanProbs) {
+      currentCleanProbs.value = result.cleanProbs
+      currentNoisyProbs.value = result.noisyProbs
+      currentDenoisedProbs.value = result.denoisedProbs
+    }
+
+    if (result.cleanEmb) {
+      cleanEmbHistory.value = [...cleanEmbHistory.value, Array.from(result.cleanEmb)]
+      noisyEmbHistory.value = [...noisyEmbHistory.value, Array.from(result.noisyEmb)]
+      denoisedEmbHistory.value = [...denoisedEmbHistory.value, Array.from(result.denoisedEmb)]
+      // Derive genre label from argmax of cleanProbs for coloring
+      const cp = result.cleanProbs || result.probs
+      let maxIdx = 0
+      for (let i = 1; i < cp.length; i++) { if (cp[i] > cp[maxIdx]) maxIdx = i }
+      genreIndexHistory.value = [...genreIndexHistory.value, maxIdx]
+    }
+    
     let newHistory =[...patchHistory.value]
     let existingIdx = newHistory.findIndex(h => h.t === quantizedT)
     
@@ -278,6 +344,9 @@ function reset() {
   patchHistory.value =[]; currentTop5.value =[]; finalTop5.value =[]
   currentTime.value = 0; playbackProgress.value = 0; audioDuration.value = 0
   currentAudioData.value = null; micAnalyser.value = null
+  currentMel.value = null; freqMap.value = null; timeMap.value = null;
+  currentCleanProbs.value = null; currentNoisyProbs.value = null; currentDenoisedProbs.value = null;
+  cleanEmbHistory.value = []; noisyEmbHistory.value = []; denoisedEmbHistory.value = []; genreIndexHistory.value = [];
 }
 
 async function stop() {
@@ -294,20 +363,23 @@ async function stop() {
 </script>
 
 <style>
+*, *::before, *::after {
+  box-sizing: border-box;
+}
 body {
   margin: 0;
   background-color: #f9fafb;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
 }
 .app-container {
-  max-width: 1200px;
+  max-width: 1400px;
   margin: 0 auto;
   padding: 40px 20px;
   color: #333;
 }
 .header {
   text-align: center;
-  margin-bottom: 40px;
+  margin-bottom: 24px;
 }
 .header h1 {
   font-size: 2.5rem;
@@ -317,11 +389,6 @@ body {
   -webkit-text-fill-color: transparent;
   font-weight: 800;
 }
-.header p {
-  color: #6b7280;
-  font-size: 1.1rem;
-  margin-top: 8px;
-}
 .upload-container {
   display: flex;
   flex-direction: column;
@@ -329,10 +396,11 @@ body {
   margin-bottom: 40px;
 }
 .upload-text {
-  font-weight: 600;
-  color: #374151;
+  color: #6b7280;
+  font-size: 1.05rem;
   text-align: center;
-  margin-bottom: 16px;
+  margin-top: 12px;
+  margin-bottom: 0;
   line-height: 1.5;
 }
 .upload-box {
@@ -428,4 +496,36 @@ body {
   margin-right: 6px;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* New Dashboard Layout */
+.dashboard-row {
+  display: flex;
+  gap: 20px;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  min-height: 360px;
+}
+.dash-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.dash-col-mel {
+  flex: 1.2;
+}
+.dash-col-act {
+  flex: 1.2;
+}
+.dash-col-top5 {
+  flex: 0.8;
+  min-width: 250px;
+}
+@media (max-width: 900px) {
+  .dashboard-row {
+    flex-direction: column;
+  }
+  .dash-col {
+    flex: 1;
+  }
+}
 </style>

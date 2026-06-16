@@ -12,7 +12,21 @@ export abstract class InferenceEngine {
    * @param sr 实际采样率
    * @returns 分类概率分布
    */
-  abstract predict(audioPatch: Float32Array, sr?: number): Promise<Float32Array>;
+  abstract predict(audioPatch: Float32Array, sr?: number): Promise<{
+    probs: Float32Array;
+    mel: Float32Array;
+    // CNN
+    shallowMap?: Float32Array;
+    deepMap?: Float32Array;
+    shallowShape?: number[];
+    deepShape?: number[];
+    // LSTM
+    hiddenState?: Float32Array;
+    cellState?: Float32Array;
+    // ResNet
+    identityEnergy?: Float32Array;
+    residualEnergy?: Float32Array;
+  }>;
 
   /**
    * 停止流式预测，结合历史数据产生最终结论

@@ -27,15 +27,21 @@ const pct = (p) => (p * 100).toFixed(1) + '%'
 
 <style scoped>
 .top5-wrapper {
+  background: #ffffff;
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.03);
+  display: flex;
+  flex-direction: column;
+  height: 100%;
   width: 100%;
-  max-width: 600px;
-  margin: 0 auto;
 }
 .title {
   text-align: center;
-  font-size: 1.25rem;
+  font-size: 1.1rem;
   font-weight: 700;
-  margin-bottom: 20px;
+  margin-top: 0;
+  margin-bottom: 16px;
   color: #111827;
 }
 .list {
