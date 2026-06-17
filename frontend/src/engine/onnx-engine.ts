@@ -9,7 +9,7 @@ export class OnnxEngine extends InferenceEngine {
   constructor(temporalKind = 'cnn') {
     super();
     this.temporalKind = temporalKind;
-    this.modelUrl = `/models/emfv1_${temporalKind}_e2e.onnx`;
+    this.modelUrl = `${(import.meta as any).env.BASE_URL}models/emfv1_${temporalKind}_e2e.onnx`;
     this.session = null;
   }
 
@@ -22,10 +22,11 @@ export class OnnxEngine extends InferenceEngine {
   get patchSamples() { return 50688; } 
 
   async init(): Promise<void> {
+    // ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/';
     // 限制单线程，避免由于浏览器不支持 SharedArrayBuffer 引起的跨域隔离报错
     ort.env.wasm.numThreads = 1;
     ort.env.wasm.simd = true;
-    ort.env.wasm.proxy = true; 
+    ort.env.wasm.proxy = false; 
 
     this.session = await ort.InferenceSession.create(this.modelUrl, {
       executionProviders: ['wasm'],

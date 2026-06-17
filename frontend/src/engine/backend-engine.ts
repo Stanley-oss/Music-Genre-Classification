@@ -10,9 +10,12 @@ export class BackendEngine extends InferenceEngine {
   constructor() {
     super();
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    this.url = `${protocol}//${window.location.host}/ws/inference`;
+    // Remove leading slash from BASE_URL if we are appending to host, or keep it depending on how it's formed
+    // import.meta.env.BASE_URL always starts and ends with '/' (e.g., '/music-genre/')
+    const base = (import.meta as any).env.BASE_URL;
+    this.url = `${protocol}//${window.location.host}${base}ws/inference`;
     // const host = (import.meta as any).env?.DEV ? 'localhost:8000' : window.location.host;
-    // this.url = `${protocol}//${host}/ws/inference`;
+    // this.url = `${protocol}//${host}${base}ws/inference`;
     this.ws = null;
     this.reqId = 0;
     this.pending = new Map();
