@@ -19,7 +19,7 @@ import { ref, onMounted, onUnmounted, watch } from 'vue'
 const props = defineProps({ 
   active: Boolean,
   audioData: Float32Array,
-  progress: Number,
+  getProgress: Function,
   analyser: Object
 })
 
@@ -28,6 +28,7 @@ const emit = defineEmits(['seek'])
 const wrapRef = ref(null)
 const cvs = ref(null)
 let raf
+let resizeRafId = null
 
 let peaks =[]
 let cachedWidth = 0
@@ -161,7 +162,7 @@ function draw() {
       cachedWidth = w
     }
 
-    const currentP = scrubProgress.value !== null ? scrubProgress.value : (props.progress || 0)
+    const currentP = scrubProgress.value !== null ? scrubProgress.value : (props.getProgress ? props.getProgress() : 0)
     const splitIndex = Math.floor(w * currentP)
 
     // Draw dark blue (played portion)
@@ -215,9 +216,22 @@ function draw() {
   }
 }
 
+function onResize() {
+  cachedWidth = 0 // Force peak recomputation on next draw
+  if (!props.active && !isDragging) {
+    // Not in active rAF loop: schedule a single debounced redraw
+    if (resizeRafId) cancelAnimationFrame(resizeRafId)
+    resizeRafId = requestAnimationFrame(() => {
+      resizeRafId = null
+      draw()
+    })
+  }
+  // If active, the running rAF loop will pick up the change on next frame
+}
+
 onMounted(() => {
   draw()
-  window.addEventListener('resize', draw)
+  window.addEventListener('resize', onResize)
 })
 
 watch(() => props.active, (v) => {
@@ -230,14 +244,15 @@ watch(() => props.audioData, () => {
   draw()
 })
 
-// 当外部只改变进度时（比如外部点按或快进），如果是暂停状态也要重绘
-watch(() => props.progress, () => {
-  if (!props.active && !isDragging) draw()
+// 暴露一个方法供外部必要时手动触发重绘
+defineExpose({
+  redraw: () => { if (!props.active && !isDragging) draw() }
 })
 
 onUnmounted(() => {
   cancelAnimationFrame(raf)
-  window.removeEventListener('resize', draw)
+  if (resizeRafId) cancelAnimationFrame(resizeRafId)
+  window.removeEventListener('resize', onResize)
 })
 </script>
 

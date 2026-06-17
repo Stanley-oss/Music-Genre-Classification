@@ -41,6 +41,9 @@ let positionBuffer = null
 let texMel = null
 let texShallow = null
 let texDeep = null
+let posLoc = -1
+let uHasShallowLoc = null
+let uHasDeepLoc = null
 
 const vsSource = `#version 300 es
 in vec2 a_position;
@@ -129,6 +132,17 @@ function initWebGL() {
   gl.attachShader(program, fragmentShader)
   gl.linkProgram(program)
 
+  // Cache attribute and uniform locations (avoid per-frame lookups)
+  posLoc = gl.getAttribLocation(program, 'a_position')
+  uHasShallowLoc = gl.getUniformLocation(program, 'u_hasShallow')
+  uHasDeepLoc = gl.getUniformLocation(program, 'u_hasDeep')
+
+  // Set constant texture unit bindings once (they never change)
+  gl.useProgram(program)
+  gl.uniform1i(gl.getUniformLocation(program, 'u_mel'), 0)
+  gl.uniform1i(gl.getUniformLocation(program, 'u_shallow'), 1)
+  gl.uniform1i(gl.getUniformLocation(program, 'u_deep'), 2)
+
   positionBuffer = gl.createBuffer()
   gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer)
   gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
@@ -190,7 +204,6 @@ function draw() {
   gl.activeTexture(gl.TEXTURE0)
   gl.bindTexture(gl.TEXTURE_2D, texMel)
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, frames, N_MELS, 0, gl.RED, gl.FLOAT, props.mel)
-  gl.uniform1i(gl.getUniformLocation(program, "u_mel"), 0)
 
   // 2. Upload Shallow
   let hasShallow = false
@@ -201,10 +214,9 @@ function draw() {
     gl.activeTexture(gl.TEXTURE1)
     gl.bindTexture(gl.TEXTURE_2D, texShallow)
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, time, freq, 0, gl.RED, gl.FLOAT, norm)
-    gl.uniform1i(gl.getUniformLocation(program, "u_shallow"), 1)
     hasShallow = true
   }
-  gl.uniform1i(gl.getUniformLocation(program, "u_hasShallow"), hasShallow ? 1 : 0)
+  gl.uniform1i(uHasShallowLoc, hasShallow ? 1 : 0)
 
   // 3. Upload Deep
   let hasDeep = false
@@ -215,13 +227,11 @@ function draw() {
     gl.activeTexture(gl.TEXTURE2)
     gl.bindTexture(gl.TEXTURE_2D, texDeep)
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, time, freq, 0, gl.RED, gl.FLOAT, norm)
-    gl.uniform1i(gl.getUniformLocation(program, "u_deep"), 2)
     hasDeep = true
   }
-  gl.uniform1i(gl.getUniformLocation(program, "u_hasDeep"), hasDeep ? 1 : 0)
+  gl.uniform1i(uHasDeepLoc, hasDeep ? 1 : 0)
 
-  // Draw quad
-  const posLoc = gl.getAttribLocation(program, "a_position")
+  // Draw quad (use cached posLoc)
   gl.enableVertexAttribArray(posLoc)
   gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer)
   gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0)
@@ -236,8 +246,7 @@ function scheduleDraw() {
 
 watch(
   () => [props.mel, props.shallowMap, props.deepMap, props.shallowShape, props.deepShape],
-  scheduleDraw,
-  { deep: true }
+  scheduleDraw
 )
 
 onMounted(() => {
@@ -258,26 +267,6 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.viz-card {
-  background: #ffffff;
-  border-radius: 16px;
-  padding: 20px;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.03);
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  width: 100%;
-}
-
-.viz-title {
-  text-align: center;
-  font-size: 1.1rem;
-  font-weight: 700;
-  margin-top: 0;
-  margin-bottom: 10px;
-  color: #111827;
-}
-
 .legend {
   display: flex;
   justify-content: center;
@@ -302,34 +291,4 @@ onUnmounted(() => {
 }
 .dot-green { background: #00ff78; box-shadow: 0 0 6px rgba(0, 255, 120, 0.6); }
 .dot-red { background: #ff5014; box-shadow: 0 0 6px rgba(255, 80, 20, 0.6); }
-
-.canvas-wrapper {
-  flex: 1;
-  display: flex;
-  align-items: stretch;
-  justify-content: stretch;
-  background: #f3f4f6;
-  border-radius: 8px;
-  overflow: hidden;
-  border: 1px solid rgba(0, 0, 0, 0.05);
-  position: relative;
-}
-
-canvas {
-  width: 100%;
-  height: 100%;
-  display: block;
-  object-fit: fill;
-}
-
-.empty-overlay {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  color: #6b7280;
-  font-size: 13px;
-  font-family: system-ui, sans-serif;
-  pointer-events: none;
-}
 </style>

@@ -46,7 +46,7 @@
       <WaveformBar
         :active="isRunning"
         :audioData="currentAudioData"
-        :progress="playbackProgress"
+        :getProgress="() => (capture && capture.duration) ? capture.currentTime / capture.duration : 0"
         :analyser="micAnalyser"
         @seek="onSeek"
       />
@@ -88,7 +88,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, shallowRef, watch, onUnmounted, triggerRef } from 'vue'
+import { ref, computed, onMounted, shallowRef, watch, onUnmounted } from 'vue'
 import { OnnxEngine } from './engine/onnx-engine'
 import { BackendEngine } from './engine/backend-engine'
 import { MicrophoneCapture, FileCapture } from './audio/capture'
@@ -108,12 +108,12 @@ const modelReady = ref(false)
 const modelLoading = ref(false)
 const isRunning = ref(false)
 const isDecoding = ref(false) // 增加解码中的状态
-const currentFile = ref(null)
+const currentFile = shallowRef(null)
+const fileInput = ref(null)
 
-const currentAudioData = ref(null)
-const playbackProgress = ref(0)
+const currentAudioData = shallowRef(null)
 const audioDuration = ref(0) 
-const micAnalyser = ref(null)
+const micAnalyser = shallowRef(null)
 
 const patchHistory = shallowRef([])
 const currentTop5 = shallowRef([])
@@ -134,7 +134,6 @@ const genreIndexHistory = shallowRef([])
 
 let capture = null
 let inferTimer = null
-let progressRaf = null
 let isInferencing = false
 
 function createEngine(type) {
@@ -174,8 +173,10 @@ watch(selectedModel, () => {
     // 但故意保留 currentAudioData、currentTime 和 playbackProgress
     // 这样波形图和播放进度能保持原样，只是排行榜和折线图重新开始记录
     patchHistory.value = []
-    currentTop5.value =[]
-    finalTop5.value =[]
+    currentProbsSum = null
+    currentProbsCount = 0
+    currentTop5.value = []
+    finalTop5.value = []
     currentMel.value = null
     freqMap.value = null; timeMap.value = null;
     currentCleanProbs.value = null; currentNoisyProbs.value = null; currentDenoisedProbs.value = null;
@@ -198,7 +199,7 @@ const statusClass = computed(() => ({
 
 function onUploadClick() {
   if (isRunning.value) stop()
-  document.querySelector('input[type="file"]').click()
+  fileInput.value?.click()
 }
 function onDrop(e) { const f = e.dataTransfer.files[0]; if (f) handleFile(f) }
 function onFileSelect(e) { const f = e.target.files[0]; if (f) handleFile(f); e.target.value = null }
@@ -213,35 +214,26 @@ function onSeek(percentage) {
     const timeSec = percentage * capture.duration
     capture.seek(percentage)
     ringBuffer.value?.clear()
-    playbackProgress.value = percentage
     currentTime.value = timeSec
   }
 }
 
+let currentProbsSum = null
+let currentProbsCount = 0
+
 function recalculateTop5() {
-  if (!engine.value || patchHistory.value.length === 0) { currentTop5.value =[]; return }
+  if (!engine.value || currentProbsCount === 0 || !currentProbsSum) { currentTop5.value = []; return }
   const genresLen = engine.value.genres.length
-  const mean = new Float32Array(genresLen)
-  for (const h of patchHistory.value) { for (let i = 0; i < genresLen; i++) mean[i] += h.probs[i] }
-  const historyLen = patchHistory.value.length
-  const indexed =[]
+  const indexed = []
   for (let i = 0; i < genresLen; i++) {
-    indexed.push({ genre: engine.value.genres[i], probability: mean[i] / historyLen })
+    indexed.push({ genre: engine.value.genres[i], probability: currentProbsSum[i] / currentProbsCount })
   }
   indexed.sort((a, b) => b.probability - a.probability)
   currentTop5.value = indexed.slice(0, 5)
 }
 
-function loopProgress() {
-  if (capture && capture instanceof FileCapture) {
-    playbackProgress.value = capture.currentTime / capture.duration
-  }
-  progressRaf = requestAnimationFrame(loopProgress)
-}
-
-onMounted(() => { bootEngine(); loopProgress() })
+onMounted(() => { bootEngine() })
 onUnmounted(() => {
-  cancelAnimationFrame(progressRaf)
   if (inferTimer) clearInterval(inferTimer)
   if (capture) { capture.stop(); capture = null }
   if (engine.value && typeof engine.value.dispose === 'function') engine.value.dispose()
@@ -277,23 +269,45 @@ async function inferenceLoop() {
     }
 
     if (result.cleanEmb) {
-      cleanEmbHistory.value = [...cleanEmbHistory.value, Array.from(result.cleanEmb)]
-      noisyEmbHistory.value = [...noisyEmbHistory.value, Array.from(result.noisyEmb)]
-      denoisedEmbHistory.value = [...denoisedEmbHistory.value, Array.from(result.denoisedEmb)]
-      
+      const MAX_EMB = 64 // Match UMAP worker's maxPts cap
+      const cleanArr = [...cleanEmbHistory.value, Array.from(result.cleanEmb)]
+      const noisyArr = [...noisyEmbHistory.value, Array.from(result.noisyEmb)]
+      const denoisedArr = [...denoisedEmbHistory.value, Array.from(result.denoisedEmb)]
+      cleanEmbHistory.value = cleanArr.length > MAX_EMB ? cleanArr.slice(-MAX_EMB) : cleanArr
+      noisyEmbHistory.value = noisyArr.length > MAX_EMB ? noisyArr.slice(-MAX_EMB) : noisyArr
+      denoisedEmbHistory.value = denoisedArr.length > MAX_EMB ? denoisedArr.slice(-MAX_EMB) : denoisedArr
+
       const cp = result.cleanProbs || result.probs
       let maxIdx = 0
       for (let i = 1; i < cp.length; i++) { if (cp[i] > cp[maxIdx]) maxIdx = i }
-      genreIndexHistory.value = [...genreIndexHistory.value, maxIdx]
+      const genreArr = [...genreIndexHistory.value, maxIdx]
+      genreIndexHistory.value = genreArr.length > MAX_EMB ? genreArr.slice(-MAX_EMB) : genreArr
     }
     
-    let newHistory =[...patchHistory.value]
-    let existingIdx = newHistory.findIndex(h => h.t === quantizedT)
+    let existingIdx = patchHistory.value.findIndex(h => h.t === quantizedT)
+    if (!currentProbsSum && engine.value) currentProbsSum = new Float32Array(engine.value.genres.length)
     
-    if (existingIdx !== -1) newHistory[existingIdx] = { t: quantizedT, probs: probsArr }
-    else { newHistory.push({ t: quantizedT, probs: probsArr }); newHistory.sort((a, b) => a.t - b.t) }
-    
-    patchHistory.value = newHistory
+    if (existingIdx !== -1) {
+      const oldProbs = patchHistory.value[existingIdx].probs
+      for (let i = 0; i < probsArr.length; i++) {
+        currentProbsSum[i] += probsArr[i] - oldProbs[i]
+      }
+      patchHistory.value[existingIdx] = { t: quantizedT, probs: probsArr }
+      patchHistory.value = [...patchHistory.value] // Trigger reactivity
+    } else {
+      for (let i = 0; i < probsArr.length; i++) {
+        currentProbsSum[i] += probsArr[i]
+      }
+      currentProbsCount++
+      const h = patchHistory.value
+      if (h.length === 0 || h[h.length - 1].t < quantizedT) {
+        patchHistory.value = [...h, { t: quantizedT, probs: probsArr }]
+      } else {
+        const newHistory = [...h, { t: quantizedT, probs: probsArr }]
+        newHistory.sort((a, b) => a.t - b.t)
+        patchHistory.value = newHistory
+      }
+    }
     
     currentTime.value = rawTime 
     recalculateTop5()
@@ -319,7 +333,7 @@ async function startFile() {
   if (!currentFile.value) return
 
   if (capture && capture instanceof FileCapture && capture.buffer) {
-    finalTop5.value =[] // 解除排行榜锁定
+    finalTop5.value = [] // 解除排行榜锁定
     capture.resume(); isRunning.value = true
     inferTimer = setInterval(() => { inferenceLoop(); if (!capture.isActive) stop() }, 500)
     return
@@ -347,12 +361,13 @@ async function startFile() {
 
 function reset() {
   ringBuffer.value?.clear()
-  patchHistory.value =[]; currentTop5.value =[]; finalTop5.value =[]
-  currentTime.value = 0; playbackProgress.value = 0; audioDuration.value = 0
+  patchHistory.value = []; currentTop5.value = []; finalTop5.value = []
+  currentProbsSum = null; currentProbsCount = 0
+  currentTime.value = 0; audioDuration.value = 0
   currentAudioData.value = null; micAnalyser.value = null
-  currentMel.value = null; freqMap.value = null; timeMap.value = null;
-  currentCleanProbs.value = null; currentNoisyProbs.value = null; currentDenoisedProbs.value = null;
-  cleanEmbHistory.value = []; noisyEmbHistory.value = []; denoisedEmbHistory.value = []; genreIndexHistory.value = [];
+  currentMel.value = null; freqMap.value = null; timeMap.value = null
+  currentCleanProbs.value = null; currentNoisyProbs.value = null; currentDenoisedProbs.value = null
+  cleanEmbHistory.value = []; noisyEmbHistory.value = []; denoisedEmbHistory.value = []; genreIndexHistory.value = []
 }
 
 async function stop() {
@@ -364,7 +379,9 @@ async function stop() {
   try {
     const result = await engine.value.finalize(probs)
     finalTop5.value = result.top5
-  } catch (e) {}
+  } catch (e) {
+    console.warn('finalize error:', e)
+  }
 }
 </script>
 

@@ -26,6 +26,18 @@ export abstract class InferenceEngine {
     // ResNet
     identityEnergy?: Float32Array;
     residualEnergy?: Float32Array;
+
+    // Feature Viz & UMAP
+    freqMap?: Float32Array;
+    timeMap?: Float32Array;
+    freqShape?: number[];
+    timeShape?: number[];
+    cleanProbs?: Float32Array;
+    noisyProbs?: Float32Array;
+    denoisedProbs?: Float32Array;
+    cleanEmb?: Float32Array;
+    noisyEmb?: Float32Array;
+    denoisedEmb?: Float32Array;
   }>;
 
   /**

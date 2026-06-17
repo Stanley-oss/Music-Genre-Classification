@@ -23,6 +23,7 @@ let gl = null
 let program = null
 let tex = null
 let positionBuffer = null
+let posLoc = -1
 
 const N_MELS = 128
 
@@ -83,6 +84,9 @@ function initWebGL() {
   gl.attachShader(program, fragmentShader)
   gl.linkProgram(program)
 
+  // Cache attribute location (avoid per-frame lookup)
+  posLoc = gl.getAttribLocation(program, 'a_position')
+
   positionBuffer = gl.createBuffer()
   gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer)
   // Full screen quad
@@ -117,7 +121,6 @@ function draw() {
   // R32F texture to read Float32Array directly
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, frames, N_MELS, 0, gl.RED, gl.FLOAT, props.data)
 
-  const posLoc = gl.getAttribLocation(program, "a_position")
   gl.enableVertexAttribArray(posLoc)
   gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer)
   gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0)
@@ -149,48 +152,4 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.viz-card {
-  background: #ffffff;
-  border-radius: 16px;
-  padding: 20px;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.03);
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-}
-.viz-title {
-  text-align: center;
-  font-size: 1.1rem;
-  font-weight: 700;
-  margin-top: 0;
-  margin-bottom: 16px;
-  color: #111827;
-}
-.canvas-wrapper {
-  flex: 1;
-  display: flex;
-  align-items: stretch;
-  justify-content: stretch;
-  background: #f3f4f6;
-  border-radius: 8px;
-  overflow: hidden;
-  border: 1px solid rgba(0, 0, 0, 0.05);
-  position: relative;
-}
-canvas {
-  width: 100%;
-  height: 100%;
-  object-fit: fill;
-  display: block;
-}
-.empty-overlay {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  color: #6b7280;
-  font-size: 13px;
-  font-family: system-ui, sans-serif;
-  pointer-events: none;
-}
 </style>

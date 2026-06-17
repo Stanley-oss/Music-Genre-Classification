@@ -79,9 +79,7 @@ const tooltipFormatter = function (params) {
 }
 
 const option = ref({
-  animation: true,
-  animationDurationUpdate: 300,
-  animationEasingUpdate: 'cubicOut',
+  animation: false,
   tooltip: { 
     trigger: 'axis', 
     backgroundColor: 'rgba(255, 255, 255, 0.95)',
@@ -135,7 +133,7 @@ watch(() => [props.genres, props.history, props.time, props.duration, zoomStart.
     connectNulls: false, lineStyle: { width: 2 },
     itemStyle: { color: palette[i % palette.length] }, data: newSeriesData[i]
   }))
-}, { deep: true, immediate: true })
+}, { immediate: true })
 </script>
 
 <style scoped>

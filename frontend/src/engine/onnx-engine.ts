@@ -45,6 +45,16 @@ export class OnnxEngine extends InferenceEngine {
     cellState?: Float32Array;
     identityEnergy?: Float32Array;
     residualEnergy?: Float32Array;
+    freqMap?: Float32Array;
+    timeMap?: Float32Array;
+    freqShape?: number[];
+    timeShape?: number[];
+    cleanProbs?: Float32Array;
+    noisyProbs?: Float32Array;
+    denoisedProbs?: Float32Array;
+    cleanEmb?: Float32Array;
+    noisyEmb?: Float32Array;
+    denoisedEmb?: Float32Array;
   }> {
     if (!this.session) throw new Error('Model not initialized');
 
