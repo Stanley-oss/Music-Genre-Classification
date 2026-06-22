@@ -7,7 +7,7 @@ import onnx
 # Add required paths
 current_dir = os.path.dirname(os.path.abspath(__file__))
 ablation_code_dir = os.path.join(current_dir, '..', 'Ablation', 'code')
-resnet_e2e_dir = os.path.join(current_dir, '..', 'resnet-e2e-model')
+resnet_e2e_dir = current_dir
 sys.path.append(ablation_code_dir)
 sys.path.append(resnet_e2e_dir)
 
