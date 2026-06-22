@@ -90,7 +90,6 @@
 <script setup>
 import { ref, computed, onMounted, shallowRef, watch, onUnmounted } from 'vue'
 import { OnnxEngine } from './engine/onnx-engine'
-import { BackendEngine } from './engine/backend-engine'
 import { MicrophoneCapture, FileCapture } from './audio/capture'
 import { AudioRingBuffer } from './audio/ring-buffer'
 import WaveformBar from './components/WaveformBar.vue'
@@ -138,7 +137,6 @@ let isInferencing = false
 
 function createEngine(type) {
   if (['cnn', 'lstm', 'resnet'].includes(type)) return new OnnxEngine(type)
-  if (type === 'backend') return new BackendEngine()
   throw new Error('Unknown engine type')
 }
 
@@ -187,7 +185,7 @@ const statusText = computed(() => {
   if (modelLoading.value) return 'Initializing engine…'
   if (isDecoding.value) return 'Decoding full audio track (this may take a few seconds)…'
   if (!modelReady.value) return 'Engine failed to load.'
-  if (isRunning.value) return engine.value?.mode === 'local' ? 'Inferencing locally…' : 'Streaming to GPU…'
+  if (isRunning.value) return 'Inferencing locally…'
   return 'Ready. Select an audio source or use Microphone.'
 })
 

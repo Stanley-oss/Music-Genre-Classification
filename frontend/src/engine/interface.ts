@@ -1,6 +1,5 @@
 export abstract class InferenceEngine {
   abstract get name(): string;
-  abstract get mode(): 'local' | 'remote';
   abstract get genres(): string[];
   abstract get sampleRate(): number;
   abstract get patchSamples(): number;

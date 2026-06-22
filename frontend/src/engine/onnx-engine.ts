@@ -14,7 +14,6 @@ export class OnnxEngine extends InferenceEngine {
   }
 
   get name() { return `Browser ONNX (WASM) — ${this.temporalKind.toUpperCase()}`; }
-  get mode(): 'local' | 'remote' { return 'local'; }
   get genres() {
     return['blues','classical','country','disco','hiphop','jazz','metal','pop','reggae','rock'];
   }
