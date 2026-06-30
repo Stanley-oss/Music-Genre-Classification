@@ -14,7 +14,7 @@
 
 ![Project flowchart](docs/assets/flowchart.png)
 
-This project performs music genre classification and contains three main parts:
+This project performs music genre classification and contains four main parts:
 
 - `model/`: data preprocessing, MusicFlowNet/EMF training, and single-audio inference scripts.
 - `e2e-model/`: ONNX export utilities for browser-side end-to-end inference.
