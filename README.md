@@ -19,6 +19,8 @@ This project performs music genre classification and contains three main parts:
 - `model/`: data preprocessing, MusicFlowNet/EMF training, and single-audio inference scripts.
 - `e2e-model/`: ONNX export utilities for browser-side end-to-end inference.
 - `frontend/`: a Vue + ONNX Runtime Web visualization app.
+- `Ablation/`: Ablation study and analysis.
+
 
 ## 1. Environment and Data Setup
 
