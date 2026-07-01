@@ -1,0 +1,13 @@
+model,mode,seed,param_tag,use_denoising,status,epochs_planned,epochs_completed,best_segment_epoch,best_segment_acc,best_segment_macro_f1,best_song_epoch,best_song_acc,best_song_macro_f1,out_dir
+cnn,full_dn,82,cnn_w0p75_d1,True,available_partial_50_of_60,60,50,49,0.8564753004005341,0.8546633548829318,45,0.9266666666666666,0.9265075613115101,runs/full_dn/cnn_cnn_w0p75_d1_full_dn_60ep_s82
+cnn,no_dn,82,cnn_w0p75_d1,False,training_output_missing_not_found_locally,60,0,,,,,,,
+resnet,full_dn,82,resnet_w1p0_d3,True,training_output_missing_not_found_locally,60,0,,,,,,,
+resnet,no_dn,82,resnet_w1p0_d3,False,training_output_missing_not_found_locally,60,0,,,,,,,
+lstm,full_dn,82,lstm_hidden64_layers1_dropout0,True,training_output_missing_not_found_locally,60,0,,,,,,,
+lstm,no_dn,82,lstm_hidden64_layers1_dropout0,False,training_output_missing_not_found_locally,60,0,,,,,,,
+rnn,full_dn,82,rnn_h80_l1,True,training_output_missing_not_found_locally,60,0,,,,,,,
+rnn,no_dn,82,rnn_h80_l1,False,training_output_missing_not_found_locally,60,0,,,,,,,
+mlp,full_dn,82,mlp_d5_h192,True,training_output_missing_not_found_locally,60,0,,,,,,,
+mlp,no_dn,82,mlp_d5_h192,False,training_output_missing_not_found_locally,60,0,,,,,,,
+transformer,full_dn,82,tf_small_w0p5_d1,True,training_output_missing_not_found_locally,60,0,,,,,,,
+transformer,no_dn,82,tf_small_w0p5_d1,False,training_output_missing_not_found_locally,60,0,,,,,,,
