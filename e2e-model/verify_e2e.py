@@ -10,8 +10,9 @@ import librosa
 import onnxruntime as ort
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
-ablation_code_dir = os.path.join(current_dir, "..", "Ablation", "code")
-sys.path.append(ablation_code_dir)
+repo_root = os.path.abspath(os.path.join(current_dir, ".."))
+model_dir = os.path.join(repo_root, "model")
+sys.path.append(model_dir)
 
 from train_musicflownet import EMFv1
 
@@ -28,7 +29,7 @@ TOP_DB_CEIL = 20.0
 
 stats = json.load(
     open(
-        os.path.join(ablation_code_dir, "mel_cache", "lm3_base_v1", "stats_train.json")
+        os.path.join(model_dir, "mel_cache", "lm3_base_v1", "stats_train.json")
     )
 )
 GLOBAL_MEAN = stats["mean"]
@@ -104,12 +105,19 @@ x_torch = torch.from_numpy(logmel_norm).unsqueeze(0).unsqueeze(0)  # [1,1,128,13
 print(f"PyTorch input shape: {x_torch.shape}")
 
 for tk in ["cnn", "resnet", "lstm"]:
-    ckpt_path = os.path.join(
-        ablation_code_dir,
-        "emf_train_runs_seed2025_backbones",
-        f"{tk}_60ep_s2025",
-        "best_emf_v1.pt",
+    candidates = glob.glob(
+        os.path.join(
+            repo_root,
+            "Ablation",
+            "result",
+            "seed82",
+            "runs",
+            "full_dn",
+            f"{tk}_*_full_dn_60ep_s82",
+            "best_emf_v1.pt",
+        )
     )
+    ckpt_path = candidates[0] if candidates else os.path.join(model_dir, "emf_v1_out", "best_emf_v1.pt")
     if not os.path.exists(ckpt_path):
         print(f"[SKIP] {tk}: checkpoint not found")
         continue
@@ -213,12 +221,22 @@ for tk in ["cnn", "resnet", "lstm"]:
 # ── Step 6: Check weight loading ──
 print("\n=== Weight Loading Check ===")
 for tk in ["cnn"]:
-    ckpt_path = os.path.join(
-        ablation_code_dir,
-        "emf_train_runs_seed2025_backbones",
-        f"{tk}_60ep_s2025",
-        "best_emf_v1.pt",
+    candidates = glob.glob(
+        os.path.join(
+            repo_root,
+            "Ablation",
+            "result",
+            "seed82",
+            "runs",
+            "full_dn",
+            f"{tk}_*_full_dn_60ep_s82",
+            "best_emf_v1.pt",
+        )
     )
+    ckpt_path = candidates[0] if candidates else os.path.join(model_dir, "emf_v1_out", "best_emf_v1.pt")
+    if not os.path.exists(ckpt_path):
+        print(f"[SKIP] {tk}: checkpoint not found")
+        continue
     checkpoint = torch.load(ckpt_path, map_location="cpu")
     sd = (
         checkpoint["model"]

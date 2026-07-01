@@ -1,14 +1,16 @@
 import os
 import sys
+import glob
 import torch
 import torch.nn as nn
 import onnx
 
 # Add required paths
 current_dir = os.path.dirname(os.path.abspath(__file__))
-ablation_code_dir = os.path.join(current_dir, "..", "Ablation", "code")
+repo_root = os.path.abspath(os.path.join(current_dir, ".."))
+model_dir = os.path.join(repo_root, "model")
 resnet_e2e_dir = current_dir
-sys.path.append(ablation_code_dir)
+sys.path.append(model_dir)
 sys.path.append(resnet_e2e_dir)
 
 from train_musicflownet import EMFv1
@@ -138,12 +140,20 @@ def export_model(temporal_kind, out_path):
     device = torch.device("cpu")
     model = E2E_Unified(temporal_kind=temporal_kind).to(device)
 
-    ckpt_path = os.path.join(
-        ablation_code_dir,
-        "emf_train_runs_seed2025_backbones",
-        f"{temporal_kind}_60ep_s2025",
-        "best_emf_v1.pt",
+    candidates = glob.glob(
+        os.path.join(
+            repo_root,
+            "Ablation",
+            "result",
+            "seed82",
+            "runs",
+            "full_dn",
+            f"{temporal_kind}_*_full_dn_60ep_s82",
+            "best_emf_v1.pt",
+        )
     )
+    candidates.append(os.path.join(model_dir, "emf_v1_out", "best_emf_v1.pt"))
+    ckpt_path = next((path for path in candidates if os.path.exists(path)), candidates[0])
     if os.path.exists(ckpt_path):
         print(f"[INFO] Loading trained weights from {ckpt_path}")
         checkpoint = torch.load(ckpt_path, map_location=device)

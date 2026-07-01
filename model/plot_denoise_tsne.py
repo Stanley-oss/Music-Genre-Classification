@@ -28,19 +28,13 @@ except ImportError as exc:
     raise ImportError("This script needs scikit-learn: pip install scikit-learn") from exc
 
 
-# This file is intended to live in E:\dl next to train_musicflownet.py.
 SCRIPT_DIR = Path(__file__).resolve().parent
-DEFAULT_ROOT_DIR = Path(r"E:\dl") if Path(r"E:\dl").exists() else SCRIPT_DIR
-DEFAULT_CKPT = DEFAULT_ROOT_DIR / "mf_runs" / "3s_base" / "best_emf_v1.pt"
-DEFAULT_NODN_CKPT = DEFAULT_ROOT_DIR / "mf_runs" / "3s_abl_nodn" / "best_emf_v1.pt"
+DEFAULT_ROOT_DIR = SCRIPT_DIR
+DEFAULT_CKPT = DEFAULT_ROOT_DIR / "emf_v1_out" / "best_emf_v1.pt"
+DEFAULT_NODN_CKPT = DEFAULT_ROOT_DIR / "emf_train_runs" / "cnn_no_dn" / "best_emf_v1.pt"
 DEFAULT_OUT_DIR = DEFAULT_ROOT_DIR / "tsne_out"
 
-LEGACY_ROOTS = (
-    r"D:\code\codepy\dl",
-    r"D:/code/codepy/dl",
-    r"C:\Users\Lenovo\PycharmProjects\dl",
-    r"C:/Users/Lenovo/PycharmProjects/dl",
-)
+LEGACY_ROOTS: Tuple[str, ...] = ()
 
 
 def relocate_known_data_dir(path: Path, root_dir: Path) -> Optional[Path]:
@@ -171,8 +165,8 @@ def apply_checkpoint_paths(tm, ckpt: Dict[str, object], root_dir: Path) -> Dict[
 def infer_temporal_kind(ckpt: Dict[str, object]) -> str:
     cfg = ckpt.get("config", {})
     if not isinstance(cfg, dict):
-        return "conformer"
-    raw = str(cfg.get("TEMPORAL_REFINER", cfg.get("temporal_kind", "conformer"))).lower()
+        return "cnn"
+    raw = str(cfg.get("TEMPORAL_REFINER", cfg.get("temporal_kind", "cnn"))).lower()
     if "transformer" in raw:
         return "transformer"
     if "lstm" in raw:
@@ -183,7 +177,7 @@ def infer_temporal_kind(ckpt: Dict[str, object]) -> str:
         return "cnn"
     if "resnet" in raw:
         return "resnet"
-    return "mlp" if "mlp" in raw else "conformer"
+    return "mlp" if "mlp" in raw else "cnn"
 
 
 def infer_use_denoising(ckpt: Dict[str, object], fallback: bool) -> bool:

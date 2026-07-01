@@ -20,6 +20,17 @@ import torch.nn as nn
 import torch.nn.functional as F
 from scipy import signal
 
+from backbones import (
+    BasicCNNBackbone,
+    ConvBNAct,
+    LSTMTimeBackbone,
+    MLPTimeBackbone,
+    RNNTimeBackbone,
+    ResNetBackbone,
+    ResidualConvBlock,
+    TransformerTimeBackbone,
+)
+
 # ============================================================
 # Project paths
 # ============================================================
@@ -54,18 +65,22 @@ TIME_EMB_DIM = 64
 EMB_DIM = 128
 CNN_WIDTH_MULT = 0.75
 CNN_DEPTH = 1
-RESNET_WIDTH_MULT = 1.25
-RESNET_DEPTH = 1
-MLP_HIDDEN_DIMS = [192, 192]
+RESNET_WIDTH_MULT = 1.0
+RESNET_DEPTH = 3
+LSTM_HIDDEN_SIZE = 64
+LSTM_NUM_LAYERS = 1
+LSTM_DROPOUT = 0.0
+MLP_HIDDEN_DIMS = [192, 192, 192, 192, 192]
 MLP_OUTPUT_DIM = 160
 MLP_DROPOUT = 0.15
-RNN_HIDDEN_SIZE = 96
-RNN_NUM_LAYERS = 2
+RNN_HIDDEN_SIZE = 80
+RNN_NUM_LAYERS = 1
 RNN_BIDIRECTIONAL = True
-RNN_DROPOUT = 0.10
-TRANSFORMER_NHEAD = 8
+RNN_DROPOUT = 0.0
+TRANSFORMER_D_MODEL = 80
+TRANSFORMER_NHEAD = 4
 TRANSFORMER_NUM_LAYERS = 1
-TRANSFORMER_DIM_FEEDFORWARD = 640
+TRANSFORMER_DIM_FEEDFORWARD = 320
 TRANSFORMER_DROPOUT = 0.15
 
 
@@ -91,277 +106,9 @@ def save_json(path: Path, obj: Dict[str, object]) -> None:
 
 
 # ============================================================
-# Model definition: must match emf_train_v1_updated.py
+# Model definition
 # ============================================================
-class ConvBNAct(nn.Module):
-    def __init__(self, in_ch: int, out_ch: int, kernel_size, padding) -> None:
-        super().__init__()
-        self.conv = nn.Conv2d(in_ch, out_ch, kernel_size=kernel_size, padding=padding, bias=False)
-        self.bn = nn.BatchNorm2d(out_ch)
-        self.act = nn.GELU()
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.act(self.bn(self.conv(x)))
-
-
-class ResidualConvBlock(nn.Module):
-    def __init__(self, channels: int) -> None:
-        super().__init__()
-        self.net = nn.Sequential(
-            ConvBNAct(channels, channels, kernel_size=3, padding=1),
-            nn.Conv2d(channels, channels, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(channels),
-        )
-        self.act = nn.GELU()
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.act(x + self.net(x))
-
-
-class TemporalConformerBlock(nn.Module):
-    def __init__(self, channels: int, num_heads: int = 4, dropout: float = 0.15) -> None:
-        super().__init__()
-        self.norm_attn = nn.LayerNorm(channels)
-        self.attn = nn.MultiheadAttention(
-            embed_dim=channels,
-            num_heads=num_heads,
-            dropout=dropout,
-            batch_first=True,
-        )
-        self.drop_attn = nn.Dropout(dropout)
-
-        self.norm_conv = nn.LayerNorm(channels)
-        self.pw1 = nn.Conv1d(channels, channels * 2, kernel_size=1)
-        self.dw = nn.Conv1d(channels, channels, kernel_size=7, padding=3, groups=channels)
-        self.bn = nn.BatchNorm1d(channels)
-        self.pw2 = nn.Conv1d(channels, channels, kernel_size=1)
-        self.drop_conv = nn.Dropout(dropout)
-
-        self.norm_ffn = nn.LayerNorm(channels)
-        self.ffn = nn.Sequential(
-            nn.Linear(channels, channels * 2),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(channels * 2, channels),
-            nn.Dropout(dropout),
-        )
-
-    def forward(self, seq: torch.Tensor) -> torch.Tensor:
-        h = self.norm_attn(seq)
-        h, _ = self.attn(h, h, h, need_weights=False)
-        seq = seq + self.drop_attn(h)
-
-        h = self.norm_conv(seq).transpose(1, 2)
-        h = F.glu(self.pw1(h), dim=1)
-        h = self.dw(h)
-        h = F.gelu(self.bn(h))
-        h = self.pw2(h).transpose(1, 2)
-        seq = seq + self.drop_conv(h)
-
-        seq = seq + self.ffn(self.norm_ffn(seq))
-        return seq
-
-
-class PositionalEncoding(nn.Module):
-    def __init__(self, d_model: int, dropout: float = TRANSFORMER_DROPOUT, max_len: int = 512) -> None:
-        super().__init__()
-        self.dropout = nn.Dropout(p=dropout)
-        position = torch.arange(max_len, dtype=torch.float32).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2, dtype=torch.float32) * (-math.log(10000.0) / d_model))
-        pe = torch.zeros(max_len, d_model, dtype=torch.float32)
-        pe[:, 0::2] = torch.sin(position * div_term)
-        pe[:, 1::2] = torch.cos(position * div_term)
-        self.register_buffer("pe", pe.unsqueeze(0), persistent=False)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.dropout(x + self.pe[:, : x.size(1), :])
-
-
-class MLPTimeBackbone(nn.Module):
-    def __init__(
-        self,
-        emb_dim: int = EMB_DIM,
-        hidden_dims: Optional[List[int]] = None,
-        dropout: float = MLP_DROPOUT,
-    ) -> None:
-        super().__init__()
-        self.emb_dim = emb_dim
-        dims = list(hidden_dims or MLP_HIDDEN_DIMS)
-        if len(dims) != 2:
-            raise ValueError("MLPTimeBackbone expects two hidden dims.")
-        self.trunk_channels = MLP_OUTPUT_DIM
-        self.mlp = nn.Sequential(
-            nn.LayerNorm(96),
-            nn.Linear(96, dims[0]),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(dims[0], dims[1]),
-            nn.GELU(),
-            nn.Linear(dims[1], self.trunk_channels),
-        )
-
-    def trunk(self, h: torch.Tensor) -> torch.Tensor:
-        return self.mlp(h.mean(dim=2).transpose(1, 2))
-
-    def forward(self, h: torch.Tensor) -> torch.Tensor:
-        return self.trunk(h)
-
-
-class LSTMTimeBackbone(nn.Module):
-    """
-    LSTM replacement for the temporal context block.
-
-    This mirrors the training code: it consumes the 96-channel feature map from
-    the two CNN branches and returns [B, T, 160] tokens for the existing pooling
-    and classifier.
-    """
-
-    def __init__(self, emb_dim: int = EMB_DIM) -> None:
-        super().__init__()
-        self.emb_dim = emb_dim
-        self.lstm = nn.LSTM(
-            96,
-            80,
-            batch_first=True,
-            bidirectional=True,
-            num_layers=1,
-        )
-
-    def trunk(self, h: torch.Tensor) -> torch.Tensor:
-        out, _ = self.lstm(h.mean(dim=2).transpose(1, 2))
-        return out
-
-    def forward(self, h: torch.Tensor) -> torch.Tensor:
-        return self.trunk(h)
-
-
-class RNNTimeBackbone(nn.Module):
-    def __init__(
-        self,
-        emb_dim: int = EMB_DIM,
-        hidden_size: int = RNN_HIDDEN_SIZE,
-        num_layers: int = RNN_NUM_LAYERS,
-        bidirectional: bool = RNN_BIDIRECTIONAL,
-        dropout: float = RNN_DROPOUT,
-    ) -> None:
-        super().__init__()
-        self.emb_dim = emb_dim
-        self.trunk_channels = hidden_size * (2 if bidirectional else 1)
-        self.rnn = nn.RNN(
-            input_size=96,
-            hidden_size=hidden_size,
-            num_layers=num_layers,
-            batch_first=True,
-            bidirectional=bidirectional,
-            dropout=dropout if num_layers > 1 else 0.0,
-        )
-
-    def trunk(self, h: torch.Tensor) -> torch.Tensor:
-        out, _ = self.rnn(h.mean(dim=2).transpose(1, 2))
-        return out
-
-    def forward(self, h: torch.Tensor) -> torch.Tensor:
-        return self.trunk(h)
-
-
-class TransformerTimeBackbone(nn.Module):
-    def __init__(
-        self,
-        emb_dim: int = EMB_DIM,
-        nhead: int = TRANSFORMER_NHEAD,
-        num_layers: int = TRANSFORMER_NUM_LAYERS,
-        dim_feedforward: int = TRANSFORMER_DIM_FEEDFORWARD,
-        dropout: float = TRANSFORMER_DROPOUT,
-    ) -> None:
-        super().__init__()
-        self.emb_dim = emb_dim
-        self.trunk_channels = 160
-        self.proj = nn.Linear(96, 160)
-        self.pos_encoder = PositionalEncoding(d_model=160, dropout=dropout)
-        encoder_layer = nn.TransformerEncoderLayer(
-            d_model=160,
-            nhead=nhead,
-            dim_feedforward=dim_feedforward,
-            dropout=dropout,
-            batch_first=True,
-        )
-        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
-
-    def trunk(self, h: torch.Tensor) -> torch.Tensor:
-        seq = self.proj(h.mean(dim=2).transpose(1, 2))
-        return self.encoder(self.pos_encoder(seq))
-
-    def forward(self, h: torch.Tensor) -> torch.Tensor:
-        return self.trunk(h)
-
-
-class BasicCNNBackbone(nn.Module):
-    """
-    CNN replacement backbone for the temporal context block.
-
-    It consumes the 96-channel feature map after the frequency/time CNN
-    branches and returns a 160-channel feature map. The rest of the inference
-    path is kept identical to training: average frequency into time tokens,
-    attention-pool them, then classify the embedding.
-    """
-
-    def __init__(self, emb_dim: int = EMB_DIM, width_mult: float = CNN_WIDTH_MULT, depth: int = CNN_DEPTH) -> None:
-        super().__init__()
-        self.emb_dim = emb_dim
-        depth = max(1, int(depth))
-        channels = [max(16, int(c * width_mult)) for c in (64, 96, 160)]
-        self.trunk_channels = channels[-1]
-
-        blocks: List[nn.Module] = [ConvBNAct(96, channels[0], 3, 1)]
-        blocks.extend(ConvBNAct(channels[0], channels[0], 3, 1) for _ in range(depth - 1))
-        blocks.append(nn.MaxPool2d(2))
-        blocks.append(ConvBNAct(channels[0], channels[1], 3, 1))
-        blocks.extend(ConvBNAct(channels[1], channels[1], 3, 1) for _ in range(depth - 1))
-        blocks.append(nn.MaxPool2d(2))
-        blocks.append(ConvBNAct(channels[1], channels[2], 3, 1))
-        blocks.extend(ResidualConvBlock(channels[2]) for _ in range(depth))
-        self.body = nn.Sequential(*blocks)
-
-    def trunk(self, h: torch.Tensor) -> torch.Tensor:
-        return self.body(h)
-
-    def forward(self, h: torch.Tensor) -> torch.Tensor:
-        return self.trunk(h)
-
-
-class ResNetBackbone(nn.Module):
-    """
-    ResNet-style replacement backbone for the temporal context block.
-
-    It consumes the same 96-channel feature map as BasicCNNBackbone, but uses
-    residual blocks at each stage. This must match the training-time ResNet
-    variant so ResNet checkpoints can be loaded directly for inference.
-    """
-
-    def __init__(self, emb_dim: int = EMB_DIM, width_mult: float = RESNET_WIDTH_MULT, depth: int = RESNET_DEPTH) -> None:
-        super().__init__()
-        self.emb_dim = emb_dim
-        depth = max(1, int(depth))
-        channels = [max(16, int(c * width_mult)) for c in (64, 96, 160)]
-        self.trunk_channels = channels[-1]
-
-        blocks: List[nn.Module] = [ConvBNAct(96, channels[0], 3, 1)]
-        blocks.extend(ResidualConvBlock(channels[0]) for _ in range(depth))
-        blocks.append(nn.MaxPool2d(2))
-        blocks.append(ConvBNAct(channels[0], channels[1], 3, 1))
-        blocks.extend(ResidualConvBlock(channels[1]) for _ in range(depth))
-        blocks.append(nn.MaxPool2d(2))
-        blocks.append(ConvBNAct(channels[1], channels[2], 3, 1))
-        blocks.extend(ResidualConvBlock(channels[2]) for _ in range(depth))
-        self.body = nn.Sequential(*blocks)
-
-    def trunk(self, h: torch.Tensor) -> torch.Tensor:
-        return self.body(h)
-
-    def forward(self, h: torch.Tensor) -> torch.Tensor:
-        return self.trunk(h)
-
-
+# Backbone implementations are shared with training through backbones.py.
 class TimeAttentionPool(nn.Module):
     def __init__(self, channels: int) -> None:
         super().__init__()
@@ -395,7 +142,7 @@ class EMFv1(nn.Module):
         self,
         num_classes: int = NUM_CLASSES,
         emb_dim: int = EMB_DIM,
-        temporal_kind: str = "conformer",
+        temporal_kind: str = "cnn",
         cnn_width_mult: float = CNN_WIDTH_MULT,
         cnn_depth: int = CNN_DEPTH,
         resnet_width_mult: float = RESNET_WIDTH_MULT,
@@ -412,28 +159,42 @@ class EMFv1(nn.Module):
 
         self.freq_branch = ConvBNAct(32, 48, kernel_size=(9, 3), padding=(4, 1))
         self.time_branch = ConvBNAct(32, 48, kernel_size=(3, 9), padding=(1, 4))
-        self.mix = nn.Sequential(
-            ConvBNAct(96, 96, kernel_size=1, padding=0),
-            ResidualConvBlock(96),
-            nn.MaxPool2d(kernel_size=(2, 2)),
-            ConvBNAct(96, 128, kernel_size=3, padding=1),
-            ResidualConvBlock(128),
-            nn.MaxPool2d(kernel_size=(2, 2)),
-            ConvBNAct(128, 160, kernel_size=3, padding=1),
-            ResidualConvBlock(160),
-        )
-        if temporal_kind == "conformer":
-            self.temporal_refiner = TemporalConformerBlock(channels=160, num_heads=4, dropout=0.15)
-        elif temporal_kind == "mlp":
-            self.temporal_refiner = MLPTimeBackbone(emb_dim=emb_dim)
+        if temporal_kind == "mlp":
+            self.temporal_refiner = MLPTimeBackbone(
+                emb_dim=emb_dim,
+                hidden_dims=MLP_HIDDEN_DIMS,
+                output_dim=MLP_OUTPUT_DIM,
+                dropout=MLP_DROPOUT,
+            )
             self.temporal_channels = self.temporal_refiner.trunk_channels
         elif temporal_kind == "lstm":
-            self.temporal_refiner = LSTMTimeBackbone(emb_dim=emb_dim)
+            self.temporal_refiner = LSTMTimeBackbone(
+                emb_dim=emb_dim,
+                hidden_size=LSTM_HIDDEN_SIZE,
+                num_layers=LSTM_NUM_LAYERS,
+                dropout=LSTM_DROPOUT,
+                output_dim=160,
+            )
+            self.temporal_channels = self.temporal_refiner.trunk_channels
         elif temporal_kind == "rnn":
-            self.temporal_refiner = RNNTimeBackbone(emb_dim=emb_dim)
+            self.temporal_refiner = RNNTimeBackbone(
+                emb_dim=emb_dim,
+                hidden_size=RNN_HIDDEN_SIZE,
+                num_layers=RNN_NUM_LAYERS,
+                bidirectional=RNN_BIDIRECTIONAL,
+                dropout=RNN_DROPOUT,
+            )
             self.temporal_channels = self.temporal_refiner.trunk_channels
         elif temporal_kind == "transformer":
-            self.temporal_refiner = TransformerTimeBackbone(emb_dim=emb_dim)
+            self.temporal_refiner = TransformerTimeBackbone(
+                emb_dim=emb_dim,
+                d_model=TRANSFORMER_D_MODEL,
+                nhead=TRANSFORMER_NHEAD,
+                num_layers=TRANSFORMER_NUM_LAYERS,
+                dim_feedforward=TRANSFORMER_DIM_FEEDFORWARD,
+                dropout=TRANSFORMER_DROPOUT,
+                output_dim=160,
+            )
             self.temporal_channels = self.temporal_refiner.trunk_channels
         elif temporal_kind == "cnn":
             self.temporal_refiner = BasicCNNBackbone(emb_dim=emb_dim, width_mult=cnn_width_mult, depth=cnn_depth)
@@ -479,9 +240,7 @@ class EMFv1(nn.Module):
             fmap = self.temporal_refiner(h)
             seq = fmap.mean(dim=2).transpose(1, 2)
         else:
-            fmap = self.mix(h)
-            seq = fmap.mean(dim=2).transpose(1, 2)
-            seq = self.temporal_refiner(seq)
+            raise ValueError(f"Unknown temporal_kind for inference: {self.temporal_kind}")
         pooled, attn = self.pool(seq)
         emb = self.to_emb(pooled)
         return emb, attn, fmap
@@ -598,8 +357,8 @@ def softmax_np(logits: np.ndarray, temperature: float = 1.0) -> np.ndarray:
 def infer_temporal_kind(ckpt: Dict[str, object]) -> str:
     cfg = ckpt.get("config", {})
     if not isinstance(cfg, dict):
-        return "conformer"
-    raw = str(cfg.get("TEMPORAL_REFINER", cfg.get("temporal_kind", "conformer"))).lower()
+        return "cnn"
+    raw = str(cfg.get("TEMPORAL_REFINER", cfg.get("temporal_kind", "cnn"))).lower()
     if "transformer" in raw:
         return "transformer"
     if "lstm" in raw:
@@ -612,7 +371,7 @@ def infer_temporal_kind(ckpt: Dict[str, object]) -> str:
         return "resnet"
     if "mlp" in raw:
         return "mlp"
-    return "conformer"
+    return "cnn"
 
 
 def load_checkpoint(ckpt_path: Path, device: torch.device):

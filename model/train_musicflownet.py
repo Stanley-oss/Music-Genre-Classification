@@ -18,6 +18,17 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
 
+from backbones import (
+    BasicCNNBackbone,
+    ConvBNAct,
+    LSTMTimeBackbone,
+    MLPTimeBackbone,
+    RNNTimeBackbone,
+    ResNetBackbone,
+    ResidualConvBlock,
+    TransformerTimeBackbone,
+)
+
 # ============================================================
 # Project paths
 # ============================================================
@@ -29,23 +40,28 @@ TRAIN_ROOT_DIR = ROOT_DIR / "emf_train_runs"
 ABLA_ROOT_DIR = ROOT_DIR / "emf_ablation_runs"
 DEFAULT_CKPT_DIR = ROOT_DIR / "emf_v1_out"
 
-# Minimal sweep knobs. Default uses the CNN temporal backbone requested for this replacement run.
-TEMPORAL_KIND = "cnn"  # choices: conformer, mlp, lstm, rnn, cnn, resnet, transformer
+# Default uses the selected CNN backbone. Available backbones:
+# cnn, resnet, lstm, rnn, mlp, transformer.
+TEMPORAL_KIND = "cnn"
 USE_DENOISING = True
 CNN_WIDTH_MULT = 0.75
 CNN_DEPTH = 1
-RESNET_WIDTH_MULT = 1.25
-RESNET_DEPTH = 1
-MLP_HIDDEN_DIMS = [192, 192]
+RESNET_WIDTH_MULT = 1.0
+RESNET_DEPTH = 3
+LSTM_HIDDEN_SIZE = 64
+LSTM_NUM_LAYERS = 1
+LSTM_DROPOUT = 0.0
+MLP_HIDDEN_DIMS = [192, 192, 192, 192, 192]
 MLP_OUTPUT_DIM = 160
 MLP_DROPOUT = 0.15
-RNN_HIDDEN_SIZE = 96
-RNN_NUM_LAYERS = 2
+RNN_HIDDEN_SIZE = 80
+RNN_NUM_LAYERS = 1
 RNN_BIDIRECTIONAL = True
-RNN_DROPOUT = 0.10
-TRANSFORMER_NHEAD = 8
+RNN_DROPOUT = 0.0
+TRANSFORMER_D_MODEL = 80
+TRANSFORMER_NHEAD = 4
 TRANSFORMER_NUM_LAYERS = 1
-TRANSFORMER_DIM_FEEDFORWARD = 640
+TRANSFORMER_DIM_FEEDFORWARD = 320
 TRANSFORMER_DROPOUT = 0.15
 
 # ============================================================
@@ -359,339 +375,8 @@ class MelGenreDataset(Dataset):
 # ============================================================
 # Model blocks
 # ============================================================
-class ConvBNAct(nn.Module):
-    def __init__(self, in_ch: int, out_ch: int, kernel_size, padding) -> None:
-        super().__init__()
-        self.conv = nn.Conv2d(in_ch, out_ch, kernel_size=kernel_size, padding=padding, bias=False)
-        self.bn = nn.BatchNorm2d(out_ch)
-        self.act = nn.GELU()
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.act(self.bn(self.conv(x)))
-
-
-class ResidualConvBlock(nn.Module):
-    def __init__(self, channels: int) -> None:
-        super().__init__()
-        self.net = nn.Sequential(
-            ConvBNAct(channels, channels, kernel_size=3, padding=1),
-            nn.Conv2d(channels, channels, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(channels),
-        )
-        self.act = nn.GELU()
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.act(x + self.net(x))
-
-
-class TemporalConformerBlock(nn.Module):
-    """
-    A compact temporal refinement block for music.
-
-    The CNN encoder first extracts local time-frequency patterns. After that,
-    this block treats each time frame as a token and models longer rhythm /
-    phrase context with self-attention plus a lightweight temporal convolution.
-    This is not module stacking for its own sake: it explicitly separates
-    local timbre extraction from temporal context modeling.
-    """
-
-    def __init__(self, channels: int, num_heads: int = 4, dropout: float = 0.15) -> None:
-        super().__init__()
-        self.norm_attn = nn.LayerNorm(channels)
-        self.attn = nn.MultiheadAttention(
-            embed_dim=channels,
-            num_heads=num_heads,
-            dropout=dropout,
-            batch_first=True,
-        )
-        self.drop_attn = nn.Dropout(dropout)
-
-        self.norm_conv = nn.LayerNorm(channels)
-        self.pw1 = nn.Conv1d(channels, channels * 2, kernel_size=1)
-        self.dw = nn.Conv1d(
-            channels,
-            channels,
-            kernel_size=7,
-            padding=3,
-            groups=channels,
-        )
-        self.bn = nn.BatchNorm1d(channels)
-        self.pw2 = nn.Conv1d(channels, channels, kernel_size=1)
-        self.drop_conv = nn.Dropout(dropout)
-
-        self.norm_ffn = nn.LayerNorm(channels)
-        self.ffn = nn.Sequential(
-            nn.Linear(channels, channels * 2),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(channels * 2, channels),
-            nn.Dropout(dropout),
-        )
-
-    def forward(self, seq: torch.Tensor) -> torch.Tensor:
-        # seq: [B, T, C]
-        h = self.norm_attn(seq)
-        h, _ = self.attn(h, h, h, need_weights=False)
-        seq = seq + self.drop_attn(h)
-
-        h = self.norm_conv(seq).transpose(1, 2)  # [B, C, T]
-        h = F.glu(self.pw1(h), dim=1)
-        h = self.dw(h)
-        h = F.gelu(self.bn(h))
-        h = self.pw2(h).transpose(1, 2)
-        seq = seq + self.drop_conv(h)
-
-        seq = seq + self.ffn(self.norm_ffn(seq))
-        return seq
-
-
-class TemporalMLPBlock(nn.Module):
-    """
-    Minimal temporal ablation block.
-
-    It keeps the same input/output shape as TemporalConformerBlock, but removes
-    self-attention and temporal convolution. This is used to test whether the
-    original temporal context module is actually contributing beyond a simple
-    per-token nonlinear projection.
-    """
-
-    def __init__(self, channels: int, dropout: float = 0.15) -> None:
-        super().__init__()
-        self.norm = nn.LayerNorm(channels)
-        self.mlp = nn.Sequential(
-            nn.Linear(channels, channels * 2),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(channels * 2, channels),
-            nn.Dropout(dropout),
-        )
-
-    def forward(self, seq: torch.Tensor) -> torch.Tensor:
-        # seq: [B, T, C]
-        return seq + self.mlp(self.norm(seq))
-
-
-class PositionalEncoding(nn.Module):
-    def __init__(self, d_model: int, dropout: float = TRANSFORMER_DROPOUT, max_len: int = 512) -> None:
-        super().__init__()
-        self.dropout = nn.Dropout(p=dropout)
-        position = torch.arange(max_len, dtype=torch.float32).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2, dtype=torch.float32) * (-math.log(10000.0) / d_model))
-        pe = torch.zeros(max_len, d_model, dtype=torch.float32)
-        pe[:, 0::2] = torch.sin(position * div_term)
-        pe[:, 1::2] = torch.cos(position * div_term)
-        self.register_buffer("pe", pe.unsqueeze(0), persistent=False)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.dropout(x + self.pe[:, : x.size(1), :])
-
-
-class MLPTimeBackbone(nn.Module):
-    """
-    MLP temporal backbone from emf_fast_ablation.py, using the selected
-    hidden=[192, 192], dropout=0.15 setting.
-
-    It consumes the 96-channel feature map after the two CNN branches and
-    returns [B, T, 160] tokens for the existing attention pooling, classifier,
-    and denoising branch.
-    """
-
-    def __init__(
-        self,
-        emb_dim: int = EMB_DIM,
-        hidden_dims: Optional[List[int]] = None,
-        dropout: float = MLP_DROPOUT,
-    ) -> None:
-        super().__init__()
-        self.emb_dim = emb_dim
-        dims = list(hidden_dims or MLP_HIDDEN_DIMS)
-        if len(dims) != 2:
-            raise ValueError("MLPTimeBackbone expects two hidden dims, matching emf_fast_ablation.py.")
-        self.trunk_channels = MLP_OUTPUT_DIM
-        self.mlp = nn.Sequential(
-            nn.LayerNorm(96),
-            nn.Linear(96, dims[0]),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(dims[0], dims[1]),
-            nn.GELU(),
-            nn.Linear(dims[1], self.trunk_channels),
-        )
-
-    def trunk(self, h: torch.Tensor) -> torch.Tensor:
-        return self.mlp(h.mean(dim=2).transpose(1, 2))
-
-    def forward(self, h: torch.Tensor) -> torch.Tensor:
-        return self.trunk(h)
-
-
-class LSTMTimeBackbone(nn.Module):
-    """
-    LSTM replacement for the temporal context block.
-
-    It adapts the teammate-provided backbone to this codebase: the input is the
-    96-channel time-frequency feature map right after the two CNN branches, and
-    the output is still a [B, T, 160] token sequence so the existing attention
-    pooling, classifier, and denoising branch remain unchanged.
-    """
-
-    def __init__(self, emb_dim: int = EMB_DIM) -> None:
-        super().__init__()
-        self.emb_dim = emb_dim
-        self.lstm = nn.LSTM(
-            96,
-            80,
-            batch_first=True,
-            bidirectional=True,
-            num_layers=1,
-        )
-
-    def trunk(self, h: torch.Tensor) -> torch.Tensor:
-        # h: [B, 96, F, T] -> [B, T, 96] -> [B, T, 160]
-        out, _ = self.lstm(h.mean(dim=2).transpose(1, 2))
-        return out
-
-    def forward(self, h: torch.Tensor) -> torch.Tensor:
-        return self.trunk(h)
-
-
-class RNNTimeBackbone(nn.Module):
-    """
-    RNN temporal backbone from emf_fast_ablation.py, using the selected
-    hidden=96, layers=2, dropout=0.10 setting.
-    """
-
-    def __init__(
-        self,
-        emb_dim: int = EMB_DIM,
-        hidden_size: int = RNN_HIDDEN_SIZE,
-        num_layers: int = RNN_NUM_LAYERS,
-        bidirectional: bool = RNN_BIDIRECTIONAL,
-        dropout: float = RNN_DROPOUT,
-    ) -> None:
-        super().__init__()
-        self.emb_dim = emb_dim
-        self.trunk_channels = hidden_size * (2 if bidirectional else 1)
-        self.rnn = nn.RNN(
-            input_size=96,
-            hidden_size=hidden_size,
-            num_layers=num_layers,
-            batch_first=True,
-            bidirectional=bidirectional,
-            dropout=dropout if num_layers > 1 else 0.0,
-        )
-
-    def trunk(self, h: torch.Tensor) -> torch.Tensor:
-        out, _ = self.rnn(h.mean(dim=2).transpose(1, 2))
-        return out
-
-    def forward(self, h: torch.Tensor) -> torch.Tensor:
-        return self.trunk(h)
-
-
-class TransformerTimeBackbone(nn.Module):
-    """
-    Transformer temporal backbone with d_model=160, nhead=8, layers=1,
-    dim_feedforward=640, dropout=0.15.
-    """
-
-    def __init__(
-        self,
-        emb_dim: int = EMB_DIM,
-        nhead: int = TRANSFORMER_NHEAD,
-        num_layers: int = TRANSFORMER_NUM_LAYERS,
-        dim_feedforward: int = TRANSFORMER_DIM_FEEDFORWARD,
-        dropout: float = TRANSFORMER_DROPOUT,
-    ) -> None:
-        super().__init__()
-        self.emb_dim = emb_dim
-        self.trunk_channels = 160
-        self.proj = nn.Linear(96, 160)
-        self.pos_encoder = PositionalEncoding(d_model=160, dropout=dropout)
-        encoder_layer = nn.TransformerEncoderLayer(
-            d_model=160,
-            nhead=nhead,
-            dim_feedforward=dim_feedforward,
-            dropout=dropout,
-            batch_first=True,
-        )
-        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
-
-    def trunk(self, h: torch.Tensor) -> torch.Tensor:
-        seq = self.proj(h.mean(dim=2).transpose(1, 2))
-        return self.encoder(self.pos_encoder(seq))
-
-    def forward(self, h: torch.Tensor) -> torch.Tensor:
-        return self.trunk(h)
-
-
-class BasicCNNBackbone(nn.Module):
-    """
-    CNN replacement backbone for the temporal context block.
-
-    It follows the teammate-provided design and consumes the 96-channel feature
-    map after the frequency/time CNN branches. The output remains a feature map
-    with 160 channels, which is then converted into time tokens for the existing
-    attention pooling, classifier, and denoising branch.
-    """
-
-    def __init__(self, emb_dim: int = EMB_DIM, width_mult: float = CNN_WIDTH_MULT, depth: int = CNN_DEPTH) -> None:
-        super().__init__()
-        self.emb_dim = emb_dim
-        depth = max(1, int(depth))
-        channels = [max(16, int(c * width_mult)) for c in (64, 96, 160)]
-        self.trunk_channels = channels[-1]
-
-        blocks: List[nn.Module] = [ConvBNAct(96, channels[0], 3, 1)]
-        blocks.extend(ConvBNAct(channels[0], channels[0], 3, 1) for _ in range(depth - 1))
-        blocks.append(nn.MaxPool2d(2))
-        blocks.append(ConvBNAct(channels[0], channels[1], 3, 1))
-        blocks.extend(ConvBNAct(channels[1], channels[1], 3, 1) for _ in range(depth - 1))
-        blocks.append(nn.MaxPool2d(2))
-        blocks.append(ConvBNAct(channels[1], channels[2], 3, 1))
-        blocks.extend(ResidualConvBlock(channels[2]) for _ in range(depth))
-        self.body = nn.Sequential(*blocks)
-
-    def trunk(self, h: torch.Tensor) -> torch.Tensor:
-        return self.body(h)
-
-    def forward(self, h: torch.Tensor) -> torch.Tensor:
-        return self.trunk(h)
-
-
-class ResNetBackbone(nn.Module):
-    """
-    ResNet-style replacement backbone for the temporal context block.
-
-    It consumes the same 96-channel feature map as the basic CNN backbone, but
-    uses residual blocks at each stage. The downstream attention pooling,
-    classifier, and embedding denoising branch remain unchanged.
-    """
-
-    def __init__(self, emb_dim: int = EMB_DIM, width_mult: float = RESNET_WIDTH_MULT, depth: int = RESNET_DEPTH) -> None:
-        super().__init__()
-        self.emb_dim = emb_dim
-        depth = max(1, int(depth))
-        channels = [max(16, int(c * width_mult)) for c in (64, 96, 160)]
-        self.trunk_channels = channels[-1]
-
-        blocks: List[nn.Module] = [ConvBNAct(96, channels[0], 3, 1)]
-        blocks.extend(ResidualConvBlock(channels[0]) for _ in range(depth))
-        blocks.append(nn.MaxPool2d(2))
-        blocks.append(ConvBNAct(channels[0], channels[1], 3, 1))
-        blocks.extend(ResidualConvBlock(channels[1]) for _ in range(depth))
-        blocks.append(nn.MaxPool2d(2))
-        blocks.append(ConvBNAct(channels[1], channels[2], 3, 1))
-        blocks.extend(ResidualConvBlock(channels[2]) for _ in range(depth))
-        self.body = nn.Sequential(*blocks)
-
-    def trunk(self, h: torch.Tensor) -> torch.Tensor:
-        return self.body(h)
-
-    def forward(self, h: torch.Tensor) -> torch.Tensor:
-        return self.trunk(h)
-
-
+# Backbone implementations live in backbones.py. The training file keeps
+# dataset handling, EMFv1, optimization, evaluation, and CLI logic together.
 class TimeAttentionPool(nn.Module):
     """
     Interpretable attention over time tokens.
@@ -739,9 +424,7 @@ class EMFv1(nn.Module):
       1) frequency-tall kernels for timbre / spectral texture;
       2) time-wide kernels for rhythm / temporal pattern.
     - Use time-attention pooling to keep an interpretable time-importance curve.
-    - Add one compact temporal Conformer block after CNN extraction, so the
-      model can capture longer rhythm / phrase context without becoming a
-      large generic Transformer.
+    - Swap one of six backbone modules for controlled architecture ablation.
     - Add flow-style clean-embedding prediction as a denoising regularizer.
     """
 
@@ -749,7 +432,7 @@ class EMFv1(nn.Module):
         self,
         num_classes: int = NUM_CLASSES,
         emb_dim: int = EMB_DIM,
-        temporal_kind: str = "conformer",
+        temporal_kind: str = "cnn",
         use_denoising: bool = True,
     ) -> None:
         super().__init__()
@@ -764,23 +447,23 @@ class EMFv1(nn.Module):
 
         self.freq_branch = ConvBNAct(32, 48, kernel_size=(9, 3), padding=(4, 1))
         self.time_branch = ConvBNAct(32, 48, kernel_size=(3, 9), padding=(1, 4))
-        self.mix = nn.Sequential(
-            ConvBNAct(96, 96, kernel_size=1, padding=0),
-            ResidualConvBlock(96),
-            nn.MaxPool2d(kernel_size=(2, 2)),
-            ConvBNAct(96, 128, kernel_size=3, padding=1),
-            ResidualConvBlock(128),
-            nn.MaxPool2d(kernel_size=(2, 2)),
-            ConvBNAct(128, 160, kernel_size=3, padding=1),
-            ResidualConvBlock(160),
-        )
-        if temporal_kind == "conformer":
-            self.temporal_refiner = TemporalConformerBlock(channels=160, num_heads=4, dropout=0.15)
-        elif temporal_kind == "mlp":
-            self.temporal_refiner = MLPTimeBackbone(emb_dim=emb_dim, hidden_dims=MLP_HIDDEN_DIMS, dropout=MLP_DROPOUT)
+        if temporal_kind == "mlp":
+            self.temporal_refiner = MLPTimeBackbone(
+                emb_dim=emb_dim,
+                hidden_dims=MLP_HIDDEN_DIMS,
+                output_dim=MLP_OUTPUT_DIM,
+                dropout=MLP_DROPOUT,
+            )
             self.temporal_channels = self.temporal_refiner.trunk_channels
         elif temporal_kind == "lstm":
-            self.temporal_refiner = LSTMTimeBackbone(emb_dim=emb_dim)
+            self.temporal_refiner = LSTMTimeBackbone(
+                emb_dim=emb_dim,
+                hidden_size=LSTM_HIDDEN_SIZE,
+                num_layers=LSTM_NUM_LAYERS,
+                dropout=LSTM_DROPOUT,
+                output_dim=160,
+            )
+            self.temporal_channels = self.temporal_refiner.trunk_channels
         elif temporal_kind == "rnn":
             self.temporal_refiner = RNNTimeBackbone(
                 emb_dim=emb_dim,
@@ -793,10 +476,12 @@ class EMFv1(nn.Module):
         elif temporal_kind == "transformer":
             self.temporal_refiner = TransformerTimeBackbone(
                 emb_dim=emb_dim,
+                d_model=TRANSFORMER_D_MODEL,
                 nhead=TRANSFORMER_NHEAD,
                 num_layers=TRANSFORMER_NUM_LAYERS,
                 dim_feedforward=TRANSFORMER_DIM_FEEDFORWARD,
                 dropout=TRANSFORMER_DROPOUT,
+                output_dim=160,
             )
             self.temporal_channels = self.temporal_refiner.trunk_channels
         elif temporal_kind == "cnn":
@@ -843,10 +528,7 @@ class EMFv1(nn.Module):
             fmap = self.temporal_refiner(h)
             seq = fmap.mean(dim=2).transpose(1, 2)
         else:
-            fmap = self.mix(h)
-            # Compress frequency dimension into time tokens, then refine temporal context.
-            seq = fmap.mean(dim=2).transpose(1, 2)  # [B, T, C]
-            seq = self.temporal_refiner(seq)
+            raise ValueError(f"Unknown temporal_kind: {self.temporal_kind}")
         pooled, attn = self.pool(seq)
         emb = self.to_emb(pooled)
         return emb, attn, fmap
@@ -1426,6 +1108,9 @@ def get_config_dict() -> Dict[str, object]:
         "CNN_DEPTH": CNN_DEPTH,
         "RESNET_WIDTH_MULT": RESNET_WIDTH_MULT,
         "RESNET_DEPTH": RESNET_DEPTH,
+        "LSTM_HIDDEN_SIZE": LSTM_HIDDEN_SIZE,
+        "LSTM_NUM_LAYERS": LSTM_NUM_LAYERS,
+        "LSTM_DROPOUT": LSTM_DROPOUT,
         "MLP_HIDDEN_DIMS": MLP_HIDDEN_DIMS,
         "MLP_OUTPUT_DIM": MLP_OUTPUT_DIM,
         "MLP_DROPOUT": MLP_DROPOUT,
@@ -1433,6 +1118,7 @@ def get_config_dict() -> Dict[str, object]:
         "RNN_NUM_LAYERS": RNN_NUM_LAYERS,
         "RNN_BIDIRECTIONAL": RNN_BIDIRECTIONAL,
         "RNN_DROPOUT": RNN_DROPOUT,
+        "TRANSFORMER_D_MODEL": TRANSFORMER_D_MODEL,
         "TRANSFORMER_NHEAD": TRANSFORMER_NHEAD,
         "TRANSFORMER_NUM_LAYERS": TRANSFORMER_NUM_LAYERS,
         "TRANSFORMER_DIM_FEEDFORWARD": TRANSFORMER_DIM_FEEDFORWARD,
@@ -1467,30 +1153,25 @@ def parse_name_list(text_value: str) -> List[str]:
 def structure_to_knobs(name: str) -> Tuple[str, bool, str]:
     """
     Supported structure names:
-    - full / conformer: original v1, TemporalConformerBlock + denoising
-    - mlp / rnn / lstm / cnn / resnet / transformer: replace temporal backbone, keep denoising
-    - nodn / no_denoise: original temporal block, turn off denoising branch
-    - mlp_nodn: MLP temporal ablation + no denoising
+    - cnn / resnet / lstm / rnn / mlp / transformer: selected backbone + denoising
+    - <backbone>_nodn or <backbone>_no_dn: selected backbone without denoising loss
+    - nodn / no_denoise: CNN backbone without denoising loss
     """
     key = name.strip().lower()
-    if key in {"full", "base", "conformer", "con_dn"}:
-        return "conformer", True, "full"
-    if key in {"mlp", "abl_mlp", "mlp_dn"}:
-        return "mlp", True, "mlp"
-    if key in {"rnn", "rnn_time"}:
-        return "rnn", True, "rnn"
-    if key in {"lstm", "lstm_time"}:
-        return "lstm", True, "lstm"
-    if key in {"cnn", "basic_cnn"}:
-        return "cnn", True, "cnn"
-    if key in {"resnet"}:
-        return "resnet", True, "resnet"
-    if key in {"transformer", "transformer_time"}:
-        return "transformer", True, "transformer"
-    if key in {"nodn", "no_denoise", "con_nodn", "no_dn"}:
-        return "conformer", False, "nodn"
-    if key in {"mlp_nodn", "mlp_no_denoise", "mlp_no_dn"}:
-        return "mlp", False, "mlp_nodn"
+    aliases = {
+        "basic_cnn": "cnn",
+        "rnn_time": "rnn",
+        "lstm_time": "lstm",
+        "transformer_time": "transformer",
+    }
+    key = aliases.get(key, key)
+    if key in {"cnn", "resnet", "lstm", "rnn", "mlp", "transformer"}:
+        return key, True, key
+    if key in {"nodn", "no_denoise", "no_dn"}:
+        return "cnn", False, "cnn_no_dn"
+    for temporal_kind in ["cnn", "resnet", "lstm", "rnn", "mlp", "transformer"]:
+        if key in {f"{temporal_kind}_nodn", f"{temporal_kind}_no_denoise", f"{temporal_kind}_no_dn"}:
+            return temporal_kind, False, f"{temporal_kind}_no_dn"
     raise ValueError(f"Unknown structure name: {name}")
 
 
@@ -1613,7 +1294,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--temporal",
         type=str,
         default=TEMPORAL_KIND,
-        choices=["conformer", "mlp", "lstm", "rnn", "cnn", "resnet", "transformer"],
+        choices=["cnn", "resnet", "lstm", "rnn", "mlp", "transformer"],
         help="Temporal backbone to train. Default is cnn for the direct VSCode run.",
     )
     parser.add_argument(
