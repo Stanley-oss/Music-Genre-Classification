@@ -57,9 +57,9 @@ MODEL_CONFIGS: Dict[str, Dict[str, object]] = {
         },
     },
     "transformer": {
-        "param_tag": "tf_d80_h4_ff320_l1",
+        "param_tag": "tf_d160_h4_ff320_l1",
         "knobs": {
-            "TRANSFORMER_D_MODEL": 80,
+            "TRANSFORMER_D_MODEL": 160,
             "TRANSFORMER_NHEAD": 4,
             "TRANSFORMER_NUM_LAYERS": 1,
             "TRANSFORMER_DIM_FEEDFORWARD": 320,
