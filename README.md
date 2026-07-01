@@ -12,7 +12,7 @@
 
 ## Project Flowchart
 
-![Project flowchart](docs/assets/flowchart.png)
+![Project flowchart](docs/assets/Model.png)
 
 This project performs music genre classification and contains four main parts:
 
