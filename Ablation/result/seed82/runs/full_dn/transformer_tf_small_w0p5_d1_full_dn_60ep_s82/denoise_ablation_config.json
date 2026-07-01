@@ -18,6 +18,6 @@
     "lstm": "requested hidden=64 setting; output is projected back to 160",
     "rnn": "grid best by macro-F1 among tied song accuracy configs: hidden=80, layers=1",
     "mlp": "mlp_d5_h192 interpreted as five 192-unit hidden layers",
-    "transformer": "tf_small interpreted as d_model=80, depth=1, projected back to 160"
+    "transformer": "tf_small interpreted as d_model=160, depth=1"
   }
 }
