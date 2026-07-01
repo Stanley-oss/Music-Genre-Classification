@@ -137,7 +137,7 @@ python model/train_musicflownet.py \
 Available temporal backbones:
 
 ```text
-conformer, mlp, lstm, rnn, cnn, resnet, transformer
+mlp, lstm, rnn, cnn, resnet, transformer
 ```
 
 The training script:
