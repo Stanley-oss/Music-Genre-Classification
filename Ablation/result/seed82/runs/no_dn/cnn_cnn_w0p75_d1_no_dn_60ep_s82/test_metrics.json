@@ -1,0 +1,19 @@
+{
+  "segment": {
+    "acc": 0.7724391057724391,
+    "balanced_acc": 0.7724555902224417,
+    "macro_precision": 0.7933688709011648,
+    "macro_recall": 0.7724555902224417,
+    "macro_f1": 0.7779087554072249
+  },
+  "song": {
+    "acc": 0.8533333333333334,
+    "balanced_acc": 0.8533333333333333,
+    "macro_precision": 0.8683424955677278,
+    "macro_recall": 0.8533333333333333,
+    "macro_f1": 0.8563375112126176
+  },
+  "num_segments": 2997,
+  "num_songs": 150,
+  "temperature": 1.15
+}

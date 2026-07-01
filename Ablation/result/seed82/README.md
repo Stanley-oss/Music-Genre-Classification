@@ -1,33 +1,40 @@
-# seed82 实验结果目录
+# seed82 去噪消融结果
 
-这个目录只放 `seed=82` 协议下已经确认存在的真实输出。当前本机可恢复的 seed82 结果不是完整 12 组消融：原始日志显示计划是 6 个模型分别跑 `full_dn` 和 `no_dn`，但实际只留下了 `CNN + full_dn` 的训练目录，以及一张 seed82 的 t-SNE 合成图。旧的其它 seed 结果和不在六模型范围内的结果没有放进这个正式目录。
+这个目录收录 `seed=82` 下六个 backbone 的去噪消融结果。每个模型都包含两种设置：
 
-## 当前已收录
+- `full_dn`：启用 denoise 分支。
+- `no_dn`：关闭 denoise 分支，只保留主分类训练。
 
-- `runs/full_dn/cnn_cnn_w0p75_d1_full_dn_60ep_s82/`：CNN + denoise 的 seed82 训练输出，包含 `best_emf_v1.pt`、`history.json`、路径脱敏后的 `config.json`、`denoise_ablation_config.json` 和标签映射。
-- `tables/cnn_full_dn_epoch_history.csv`：从 `history.json` 导出的 50 个 epoch 逐轮指标。
-- `tables/seed82_run_inventory.csv`：原计划 12 个实验的完成情况清单，明确标出哪些结果缺失。
-- `figures/tsne_unified_noisy_vs_denoised_seed82.png`：当前可找到的 seed82 六模型 t-SNE 合成图。
-- `tsne/tsne_unified_noisy_vs_denoised_seed82.png`：同一张 t-SNE 图，放在 t-SNE 子目录下便于查找。注意，本机没有找到这张图对应的逐模型 t-SNE 点数据或完整训练目录，所以这里先只收录 PNG。
-为了让公开仓库干净，原始日志和 `mel_items.csv` 这类带本机路径的运行缓存没有提交。逐 epoch 指标已经从 `history.json` 导出到 `tables/cnn_full_dn_epoch_history.csv`。
+六个模型分别是 `CNN`、`ResNet`、`LSTM`、`RNN`、`MLP`、`Transformer`。本目录只保留这六个模型的 seed82 正式结果，不放其它历史 seed 或不在本轮消融范围内的模型。
 
-## 已知指标
+## 目录内容
 
-CNN + denoise 这一组计划训练 60 个 epoch，但本机留下的 `history.json` 只有前 50 个 epoch。
+- `runs/full_dn/`：六个模型启用 denoise 后的训练输出。
+- `runs/no_dn/`：六个模型关闭 denoise 后的训练输出。
+- 每个 run 目录内包含：
+  - `history.json`：训练和验证过程指标。
+  - `test_metrics.json`：测试集 segment/song 级别指标。
+  - `test_predictions_v1.csv`：测试集逐片段预测结果，已去掉本机绝对路径。
+  - `config.json`：路径脱敏后的训练配置。
+  - `denoise_ablation_config.json`：本轮消融配置。
+  - `label_to_id.json`：类别映射。
+- `tables/train_summary.csv`：12 组实验的汇总表。
+- `tables/denoise_delta_summary.csv`：同一 backbone 下 `full_dn - no_dn` 的差值表。
+- `tables/epoch_history_all_runs.csv`：12 组实验逐 epoch 历史指标。
+- `tables/seed82_run_inventory.csv`：结果文件清单。
+- `tables/mel_items_seed82_sanitized.csv`：脱敏后的数据索引，只保留一份，避免每个 run 重复提交。
+- `figures/tsne_unified_noisy_vs_denoised_seed82.png`：六模型 denoise 前后 t-SNE 合成图。
+- `tsne/tsne_unified_noisy_vs_denoised_seed82.png`：同一张图的 t-SNE 目录副本。
 
-| 模型 | 模式 | seed | 参数 | 已完成 epoch | 最好 val segment acc | 最好 val song acc |
-|---|---|---:|---|---:|---:|---:|
-| CNN | full_dn | 82 | `width_mult=0.75, depth=1` | 50/60 | 0.8565, epoch 49 | 0.9267, epoch 45 |
+## 测试集结果摘要
 
-## 当前缺失
+| 模型 | full_dn song acc | no_dn song acc | song acc 差值 | full_dn segment acc | no_dn segment acc | segment acc 差值 |
+|---|---:|---:|---:|---:|---:|---:|
+| CNN | 0.8333 | 0.8533 | -0.0200 | 0.7528 | 0.7724 | -0.0197 |
+| ResNet | 0.8933 | 0.8400 | +0.0533 | 0.8115 | 0.7774 | +0.0340 |
+| LSTM | 0.8200 | 0.8000 | +0.0200 | 0.7401 | 0.7291 | +0.0110 |
+| RNN | 0.7800 | 0.8600 | -0.0800 | 0.7304 | 0.7754 | -0.0450 |
+| MLP | 0.8467 | 0.8600 | -0.0133 | 0.7855 | 0.7701 | +0.0153 |
+| Transformer | 0.7467 | 0.8067 | -0.0600 | 0.6777 | 0.7514 | -0.0737 |
 
-以下结果在本机没有找到，因此没有放入仓库：
-
-- `CNN + no_dn`
-- `ResNet + full_dn / no_dn`
-- `LSTM + full_dn / no_dn`
-- `RNN + full_dn / no_dn`
-- `MLP + full_dn / no_dn`
-- `Transformer + full_dn / no_dn`
-
-所以，这个目录现在可以作为“已恢复的真实 seed82 产物”，但还不能当作完整的六模型去噪消融训练结果。要写正式消融结论，还需要补跑缺失的 11 组，并重新生成完整的对比表和配套 t-SNE 数据。
+从这批 seed82 结果看，`ResNet + full_dn` 是整体最好的组合，测试集 song acc 为 `0.8933`，segment acc 为 `0.8115`。但 denoise 的收益和 backbone 有明显关系：ResNet、LSTM 在 song/segment 上都有正增益，CNN、RNN、Transformer 在这组 seed 下反而下降，MLP 则是 segment 提升但 song 略降。写报告时建议按具体表格解释，不要笼统写“去噪模块对所有模型都有效”。

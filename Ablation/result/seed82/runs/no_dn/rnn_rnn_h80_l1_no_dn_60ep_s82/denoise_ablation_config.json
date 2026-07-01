@@ -1,0 +1,23 @@
+{
+  "purpose": "seed=82 full-denoise vs no-denoise ablation using per-backbone best grid parameters",
+  "seed": 82,
+  "epochs": 60,
+  "mode": "no_dn",
+  "temporal_kind": "rnn",
+  "use_denoising": false,
+  "param_tag": "rnn_h80_l1",
+  "knobs": {
+    "RNN_HIDDEN_SIZE": 80,
+    "RNN_NUM_LAYERS": 1,
+    "RNN_BIDIRECTIONAL": true,
+    "RNN_DROPOUT": 0.0
+  },
+  "notes": {
+    "cnn": "grid best: width_mult=0.75, depth=1",
+    "resnet": "grid best: width_mult=1.0, depth=3",
+    "lstm": "requested hidden=64 setting; output is projected back to 160",
+    "rnn": "grid best by macro-F1 among tied song accuracy configs: hidden=80, layers=1",
+    "mlp": "mlp_d5_h192 interpreted as five 192-unit hidden layers",
+    "transformer": "tf_small interpreted as d_model=80, depth=1, projected back to 160"
+  }
+}
