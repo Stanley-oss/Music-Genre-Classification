@@ -1,177 +1,250 @@
 # Music Genre Classification
 
-本项目用于 GTZAN 音乐流派分类，包含模型训练、消融实验、ONNX 端到端推理和前端展示。当前训练代码统一维护六个 backbone：`cnn`、`resnet`、`lstm`、`rnn`、`mlp`、`transformer`；旧的第七种主干路线已从正式训练与消融入口中移除。
 
-## Demo
-
+## Demo Presentation
 [Live Demo is here to use!](https://music.yelants.top/)
+### Main UI for Prediction:  
+![Website screenshot](docs/assets/website1.png) 
 
-### Main UI for Prediction
+### Visualization Output:
+![Website screenshot](docs/assets/website2.png) 
 
-![Website screenshot](docs/assets/website1.png)
-
-### Visualization Output
-
-![Website screenshot](docs/assets/website2.png)
 
 ## Project Flowchart
 
 ![Project flowchart](docs/assets/Model.png)
 
-## 项目结构
+This project performs music genre classification and contains four main parts:
 
-```text
-Music-Genre-Classification/
-├── model/
-│   ├── preprocessing.py           # GTZAN 切片与 mel 特征预处理
-│   ├── train_musicflownet.py      # 主训练入口
-│   ├── backbones.py               # 六个 backbone 的统一实现
-│   ├── predict_audio.py           # 单音频推理
-│   ├── plot_denoise_tsne.py       # 单模型去噪前后 t-SNE
-│   └── combine_tsne_grid.py       # 多模型 t-SNE 合成图
-├── Ablation/
-│   ├── code/                      # seed=82 的六模型消融脚本
-│   └── result/                    # seed82 正式输出目录
-├── e2e-model/                     # ONNX 导出与验证
-├── frontend/                      # Vue + ONNX Runtime Web 前端
-└── docs/assets/                   # README 与报告用图片
-```
+- `model/`: data preprocessing, MusicFlowNet/EMF training, and single-audio inference scripts.
+- `e2e-model/`: ONNX export utilities for browser-side end-to-end inference.
+- `frontend/`: a Vue + ONNX Runtime Web visualization app.
+- `Ablation/`: Ablation study and analysis.
 
-说明：GitHub 仓库中的 `Ablation/result` 只保留 `seed82` 正式输出目录，旧调参过程、其他 seed 和非正式可视化结果不再放入仓库，避免和最终消融表混在一起。
 
-## 环境准备
+## 1. Environment and Data Setup
 
-Python 训练与分析依赖：
+Prepare the Python/frontend environments first, then place the GTZAN dataset under the project directory.
+
+### Python Environment
+
+Install the dependencies used by preprocessing, training, and inference:
 
 ```bash
-pip install numpy scipy librosa soundfile torch torchaudio matplotlib scikit-learn onnx onnxruntime
+python -m venv .venv
+source .venv/bin/activate
+pip install numpy scipy librosa soundfile torch torchaudio matplotlib onnx onnxruntime
 ```
 
-如果使用 GPU，请安装和本机 CUDA 匹配的 PyTorch。训练脚本默认优先使用 CUDA；只调试流程时可以加 `--force_cuda false`。
+For GPU training, install the PyTorch build that matches your CUDA version. The training script uses CUDA by default; for quick CPU-only debugging, add `--force_cuda false` to the training command.
 
-前端依赖：
+### Frontend Environment
+
+Node.js 18+ is recommended:
 
 ```bash
 cd frontend
 npm install
 ```
 
-## 数据准备
+### Dataset Layout
 
-GTZAN 数据集下载地址：
+GTZAN download link: https://www.kaggle.com/datasets/andradaolteanu/gtzan-dataset-music-genre-classification
 
-https://www.kaggle.com/datasets/andradaolteanu/gtzan-dataset-music-genre-classification
-
-建议放成如下结构：
+Only the `genres_original` part of the dataset is needed. The expected layout is:
 
 ```text
-model/
-└── gtzan_dataset/
-    ├── genres_original/
-    │   ├── blues/
-    │   ├── classical/
-    │   └── ...
-    └── GTZAN_SONGTITLE_ARTIST.csv   # 可选
+gtzan_dataset/
+  genres_original/
+    blues/
+      blues.00000.wav
+      ...
+    classical/
+    country/
+    disco/
+    hiphop/
+    jazz/
+    metal/
+    pop/
+    reggae/
+    rock/
+  GTZAN_SONGTITLE_ARTIST.csv   # optional
 ```
 
-运行预处理：
+`GTZAN_SONGTITLE_ARTIST.csv` is optional artist metadata. If present, the preprocessing script uses it for artist-aware train/val/test splits. If it is missing, the split falls back to song-level random assignment.
+
+## 2. Data Preprocessing
+
+Open `model/preprocessing.py` and update the paths:
+
+```python
+ROOT_DIR = Path("/path/to/Music-Genre-Classification")
+RAW_DIR = ROOT_DIR / "gtzan_dataset" / "genres_original"
+OUT_DIR = ROOT_DIR / "model" / "preprocessed"
+```
+
+Then run:
 
 ```bash
 python model/preprocessing.py
 ```
 
-训练代码默认读取：
+The preprocessing script reads raw audio files such as `.mp3`, `.wav`, `.au`, `.ogg`, and `.flac`, resamples them to 22050 Hz mono, applies basic cleaning, and writes segmented `.wav` files. It does not generate log-mel image files at this stage.
+
+Expected output:
 
 ```text
-model/preprocessed/seg_3s_base
-model/mel_cache/lm3_base_v1
+model/preprocessed/
+  full_base/
+  full_clean_light/
+  seg_1s_base/
+  seg_3s_base/
+    train/<genre>/*.wav
+    val/<genre>/*.wav
+    test/<genre>/*.wav
+  seg_10s_base/
+  seg_30s_base/
+  manifests/
+    songs_all.csv
+    train.csv
+    val.csv
+    test.csv
+    segment_manifest.csv
+    bad_files.csv
 ```
 
-## 主模型训练
+`bad_files.csv` records audio files that could not be read or processed.
 
-直接运行默认 CNN backbone：
+## 3. Model Training
+
+Basic command:
 
 ```bash
 python model/train_musicflownet.py
 ```
 
-指定 backbone：
+Recommended settings:
 
 ```bash
-python model/train_musicflownet.py --temporal cnn --epochs 60 --build_mel true --export_explain false
+python model/train_musicflownet.py \
+  --temporal cnn \
+  --epochs 60 \
+  --build_mel true \
+  --export_explain false \
+  --force_cuda true
 ```
 
-可选 backbone：
+Available temporal backbones:
 
 ```text
-cnn, resnet, lstm, rnn, mlp, transformer
+conformer, mlp, lstm, rnn, cnn, resnet, transformer
 ```
 
-当前整理后的默认实验参数写在 `model/train_musicflownet.py` 中。六个模型共享同一套训练、分类头和 denoise 模块，主要差异只来自 temporal backbone。
+The training script:
 
-## 六模型消融
+- Reads train/val/test segments from `model/preprocessed/seg_3s_base`.
+- Converts `.wav` segments to log-mel `.npy` feature caches under `model/mel_cache/lm3_base_v1`.
+- Computes the train-set log-mel mean and standard deviation.
+- Trains the model and saves the best checkpoint based on validation performance.
+- Reports segment-level and song-level test metrics.
+- Copies the best checkpoint to `model/emf_v1_out/best_emf_v1.pt` by default, so the inference script can use it directly.
 
-消融脚本放在 `Ablation/code/`，固定使用 `seed=82` 和 `epochs=60`。每个模型会跑两种设置：
-
-- `full_dn`：使用 denoise 模块；
-- `no_dn`：关闭 denoise 模块。
-
-单独跑某个模型：
-
-```bash
-python Ablation/code/run_cnn_ablation.py
-python Ablation/code/run_resnet_ablation.py
-python Ablation/code/run_lstm_ablation.py
-python Ablation/code/run_rnn_ablation.py
-python Ablation/code/run_mlp_ablation.py
-python Ablation/code/run_transformer_ablation.py
-```
-
-一次跑完六个模型：
-
-```bash
-python Ablation/code/run_all_seed82_ablation.py
-```
-
-输出位置：
+Default training outputs:
 
 ```text
-Ablation/result/seed82/
-├── runs/       # 每次训练的 checkpoint、history、metrics
-├── tables/     # 汇总表
-├── tsne/       # 单模型 t-SNE
-└── figures/    # 六模型合成图
+model/emf_train_runs/<temporal>_<epochs>ep_s<seed>/
+  best_emf_v1.pt
+  config.json
+  history.json
+  test_metrics.json
+  test_predictions_v1.csv
+  mel_items.csv
+
+model/emf_train_runs/train_summary.csv
+model/emf_v1_out/best_emf_v1.pt
 ```
 
-训练全部结束后，脚本会再生成 t-SNE 图和汇总图，减少中途画图导致的混乱。
+If GPU memory is not enough, reduce these values near the top of `model/train_musicflownet.py`:
 
-## 单音频推理
+```python
+BATCH_SIZE = 64
+NUM_WORKERS = 0
+```
+
+## 4. Single-Audio Inference
+
+After training, run `model/predict_audio.py` on any audio file:
 
 ```bash
-python model/predict_audio.py --audio path/to/audio.wav --checkpoint path/to/best_model.pt
+python model/predict_audio.py \
+  --audio /path/to/song.wav \
+  --checkpoint model/emf_v1_out/best_emf_v1.pt \
+  --out_dir model/infer_out \
+  --topk 3
 ```
 
-如果 checkpoint 中记录了训练配置，推理脚本会优先按 checkpoint 的 backbone 参数构建模型。
+The inference script:
 
-## ONNX 与前端
+- Converts the input audio to 22050 Hz mono.
+- Applies the same basic cleaning as training.
+- Splits the audio into 3-second windows with a 1.5-second hop.
+- Predicts each segment and averages probabilities for the final song-level result.
 
-导出 ONNX：
+Example output:
 
-```bash
-python e2e-model/export_onnx.py
+```text
+model/infer_out/
+  <audio_name>_segment_predictions.csv
+  <audio_name>_summary.json
 ```
 
-验证 ONNX：
+`summary.json` contains the song-level top-k prediction. `segment_predictions.csv` contains each segment prediction and its attention peak position.
 
-```bash
-python e2e-model/verify_e2e.py
+## 5. Frontend Usage
+
+The frontend loads ONNX models from:
+
+```text
+frontend/public/models/
+  emfv1_cnn_e2e.onnx
+  emfv1_lstm_e2e.onnx
+  emfv1_resnet_e2e.onnx
 ```
 
-启动前端：
+Start the development server:
 
 ```bash
 cd frontend
 npm run dev
 ```
 
-前端用于展示音频上传、流派预测和可视化结果，模型文件由 `e2e-model/` 导出。
+Open the local URL printed by Vite. The app supports:
+
+- Uploading an audio file and running inference during playback.
+- Real-time microphone inference.
+- Switching between CNN, LSTM, and ResNet ONNX models.
+- Visualizing genre probabilities, mel spectrograms, CNN feature maps, top genres, and UMAP embeddings.
+
+## 6. ONNX Model Export
+
+If you retrain the model and want to update the frontend ONNX files, export the new PyTorch checkpoint:
+
+```bash
+python e2e-model/export_onnx.py
+```
+
+Before running export, update the checkpoint search path in `e2e-model/export_onnx.py` so it points to your actual `best_emf_v1.pt`.
+
+The frontend expects these filenames:
+
+```text
+emfv1_cnn_e2e.onnx
+emfv1_lstm_e2e.onnx
+emfv1_resnet_e2e.onnx
+```
+
+Place the exported files under:
+
+```text
+frontend/public/models/
+```
