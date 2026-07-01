@@ -5,7 +5,6 @@ nginx_config.txt
 
 Ablation/code/preprocessed
 Ablation/code/mel_cache
-Ablation/code/emf_train_runs_seed2025_backbones
 .antigravitycli
 
 # Byte-compiled / optimized / DLL files
