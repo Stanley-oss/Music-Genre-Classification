@@ -1,0 +1,34 @@
+{
+  "models": [
+    {
+      "key": "cnn",
+      "title": "CNN"
+    },
+    {
+      "key": "resnet",
+      "title": "ResNet"
+    },
+    {
+      "key": "lstm",
+      "title": "LSTM"
+    },
+    {
+      "key": "rnn",
+      "title": "RNN"
+    },
+    {
+      "key": "mlp",
+      "title": "MLP"
+    },
+    {
+      "key": "transformer",
+      "title": "Transformer"
+    }
+  ],
+  "split": "test",
+  "max_samples": 1000,
+  "tsne_points": 12000,
+  "seed": 2025,
+  "perplexity": 30.0,
+  "figure": "E:\\dl\\tsne_seed2025_backbones\\model_comparison_unified_before_after_genres.png"
+}
