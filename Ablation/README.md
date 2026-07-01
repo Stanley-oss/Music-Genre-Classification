@@ -13,7 +13,7 @@
 | LSTM | `hidden_size=64`, `num_layers=1`, `bidirectional=True` |
 | RNN | `hidden_size=80`, `num_layers=1`, `bidirectional=True` |
 | MLP | `hidden_dims=[192,192,192,192,192]`, `dropout=0.15` |
-| Transformer | `d_model=80`, `nhead=4`, `num_layers=1`, `dim_feedforward=320` |
+| Transformer | `d_model=160`, `nhead=4`, `num_layers=1`, `dim_feedforward=320` |
 
 每个模型跑两组：
 
