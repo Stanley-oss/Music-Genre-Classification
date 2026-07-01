@@ -1,12 +1,12 @@
-# 消融实验说明
+# Ablation Study Documentation
 
-本目录只整理模型和实验相关内容，重点是固定 `seed=82` 下的六个 backbone 对比，以及 denoise 模块的开关消融。
+This directory organizes content related specifically to models and experiments, focusing on the comparison of six backbones under a fixed `seed=82`, alongside an ON/OFF ablation study of the denoise module.
 
-## 实验目标
+## Experimental Objectives
 
-本项目最终比较六个主干结构：
+The project evaluates and compares six backbone architectures with the following specifications:
 
-| 模型 | 主要参数 |
+| Model | Key Parameters |
 |---|---|
 | CNN | `width_mult=0.75`, `depth=1` |
 | ResNet | `width_mult=1.0`, `depth=3` |
@@ -15,12 +15,14 @@
 | MLP | `hidden_dims=[192,192,192,192,192]`, `dropout=0.15` |
 | Transformer | `d_model=160`, `nhead=4`, `num_layers=1`, `dim_feedforward=320` |
 
-每个模型跑两组：
+The configures are adjusted 9 times for the parameter tuning of each backbone before getting this set.
 
-- `full_dn`：分类损失 + embedding denoise MSE + denoised embedding 分类损失。
-- `no_dn`：只保留普通分类损失，用来判断 denoise 模块是否带来收益。
+Each model is trained under two configurations:
 
-## 目录结构
+- `full_dn`: Classification Loss + Embedding Denoise MSE + Denoised Embedding Classification Loss.
+- `no_dn`: Standard Classification Loss only, used to determine the performance gains brought by the denoise module.
+
+## Directory Structure
 
 ```text
 Ablation/
@@ -39,49 +41,45 @@ Ablation/
         ├── tables/
         ├── tsne/
         └── figures/
-```
 
-`code/` 里六个单模型脚本可以分别运行；`run_all_seed82_ablation.py` 会按 CNN、ResNet、LSTM、RNN、MLP、Transformer 的顺序全部跑完。
+The six single-model scripts in `code/` can be executed independently. Alternatively, `run_all_seed82_ablation.py` will run all of them sequentially in the following order: CNN, ResNet, LSTM, RNN, MLP, and Transformer.
 
-## 如何运行
+## How to Run
 
-先完成主项目的数据预处理和 log-mel 缓存。训练脚本默认读取：
+Ensure that data preprocessing and log-mel caching for the main project are completed first. The training scripts default to reading from:
 
 ```text
 model/preprocessed/seg_3s_base
 model/mel_cache/lm3_base_v1
 ```
 
-如果只跑一个模型，例如 CNN：
+To run a single model ablation (e.g., CNN):
 
 ```bash
 python Ablation/code/run_cnn_ablation.py
 ```
 
-如果一次跑完六个模型：
+To run all six models in sequence:
 
 ```bash
 python Ablation/code/run_all_seed82_ablation.py
 ```
 
-输出会自动写入：
+Outputs will be automatically saved to:
 
 ```text
 Ablation/result/seed82/
 ```
 
-训练完成后会生成：
+Upon completion of the training, the following files will be generated:
 
-- `tables/train_summary.csv`：每个模型、每个模式的 segment/song 指标。
-- `tables/denoise_delta_summary.csv`：同一模型下 `full_dn - no_dn` 的差值。
-- `tsne/<model>/`：每个模型 denoise 前后的 t-SNE 图和坐标。
-- `figures/tsne_unified_noisy_vs_denoised_seed82.png`：六个模型合并图。
+- `tables/train_summary.csv`：egment-level and song-level metrics for each model and mode.
+- `tables/denoise_delta_summary.csv`：The metric improvements `full_dn - no_dn` within the same model backbone.
+- `tsne/<model>/`：t-SNE plots and coordinates before and after denoising for each model.
+- `figures/tsne_unified_noisy_vs_denoised_seed82.png`：A unified composite plot for all six models.
 
-## 写论文时的口径
 
-这组实验用于回答两个问题：
+This set of experiments is designed to answer two main research questions:
 
-1. 在相同数据划分、相同训练轮数、相同 seed 下，不同 backbone 的表现是否有差异。
-2. 在同一个 backbone 内，加入 denoise 分支后，分类指标和 embedding 可视化是否发生变化。
-
-注意不要把历史不同 seed 的结果混进这张正式消融表。GitHub 仓库只保留 `seed82` 目录下的正式结果；旧调参过程可以在本地留档，但不再作为仓库正式结果提交。
+1. Whether performance variances exist across different backbones given identical data splits, training epochs, and the same random seed.
+2. Within the same backbone, how the classification metrics and embedding visualizations change after incorporating the denoise branch.
