@@ -1,7 +1,0 @@
-seed,structure,temporal_kind,use_denoising,segment_acc,segment_macro_f1,song_acc,song_macro_f1,temperature,out_dir
-2025,cnn,cnn,True,0.7494160827494161,0.7463809722822037,0.8,0.7967254820784886,1.15,C:\Users\Lenovo\PycharmProjects\dl\emf_train_runs_seed2025_backbones\cnn_60ep_s2025
-2025,resnet,resnet,True,0.7987987987987988,0.7925938188117496,0.8466666666666667,0.8457520385106593,1.15,C:\Users\Lenovo\PycharmProjects\dl\emf_train_runs_seed2025_backbones\resnet_60ep_s2025
-2025,lstm,lstm,True,0.7620954287620955,0.7713568715589981,0.8333333333333334,0.8398191970007876,1.15,C:\Users\Lenovo\PycharmProjects\dl\emf_train_runs_seed2025_backbones\lstm_60ep_s2025
-2025,rnn,rnn,True,0.7624290957624291,0.7604609485317699,0.8333333333333334,0.8311897298104194,1.05,C:\Users\Lenovo\PycharmProjects\dl\emf_train_runs_seed2025_backbones\rnn_60ep_s2025
-2025,mlp,mlp,True,0.7737737737737738,0.7720805957700494,0.8466666666666667,0.8461095193686962,1.2000000000000002,C:\Users\Lenovo\PycharmProjects\dl\emf_train_runs_seed2025_backbones\mlp_60ep_s2025
-2025,transformer,transformer,True,0.7714381047714381,0.7725535905549471,0.8266666666666667,0.8251318925790562,1.25,C:\Users\Lenovo\PycharmProjects\dl\emf_train_runs_seed2025_backbones\transformer_60ep_s2025

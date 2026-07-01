@@ -31,13 +31,13 @@ Music-Genre-Classification/
 │   └── combine_tsne_grid.py       # 多模型 t-SNE 合成图
 ├── Ablation/
 │   ├── code/                      # seed=82 的六模型消融脚本
-│   └── result/                    # 历史结果 + seed82 正式输出目录
+│   └── result/                    # seed82 正式输出目录
 ├── e2e-model/                     # ONNX 导出与验证
 ├── frontend/                      # Vue + ONNX Runtime Web 前端
 └── docs/assets/                   # README 与报告用图片
 ```
 
-说明：`Ablation/result` 中已有的历史结果会保留，新的正式消融输出统一写入 `Ablation/result/seed82/`，避免再把不同 seed 和不同阶段的结果混在一起。
+说明：GitHub 仓库中的 `Ablation/result` 只保留 `seed82` 正式输出目录，旧调参过程、其他 seed 和非正式可视化结果不再放入仓库，避免和最终消融表混在一起。
 
 ## 环境准备
 

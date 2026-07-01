@@ -1,8 +1,0 @@
-﻿"model","run_group","seed","temporal_kind","use_denoising","segment_acc","segment_macro_f1","song_acc","song_macro_f1","temperature","source_dir"
-"original_conformer","controlled_seed2025","2025","conformer","True","0.798465131798465","0.804219190568352","0.866666666666667","0.873702791461412","1.25","E:\dl\emf_v1_sweep\v1_full_s2025"
-"mlp","controlled_seed2025","2025","mlp","True","0.773773773773774","0.772080595770049","0.846666666666667","0.846109519368696","1.2","C:\Users\Lenovo\PycharmProjects\dl\emf_train_runs_seed2025_backbones\mlp_60ep_s2025"
-"resnet","controlled_seed2025","2025","resnet","True","0.798798798798799","0.79259381881175","0.846666666666667","0.845752038510659","1.15","C:\Users\Lenovo\PycharmProjects\dl\emf_train_runs_seed2025_backbones\resnet_60ep_s2025"
-"lstm","controlled_seed2025","2025","lstm","True","0.762095428762095","0.771356871558998","0.833333333333333","0.839819197000788","1.15","C:\Users\Lenovo\PycharmProjects\dl\emf_train_runs_seed2025_backbones\lstm_60ep_s2025"
-"rnn","controlled_seed2025","2025","rnn","True","0.762429095762429","0.76046094853177","0.833333333333333","0.831189729810419","1.05","C:\Users\Lenovo\PycharmProjects\dl\emf_train_runs_seed2025_backbones\rnn_60ep_s2025"
-"transformer","controlled_seed2025","2025","transformer","True","0.771438104771438","0.772553590554947","0.826666666666667","0.825131892579056","1.25","C:\Users\Lenovo\PycharmProjects\dl\emf_train_runs_seed2025_backbones\transformer_60ep_s2025"
-"cnn","controlled_seed2025","2025","cnn","True","0.749416082749416","0.746380972282204","0.8","0.796725482078489","1.15","C:\Users\Lenovo\PycharmProjects\dl\emf_train_runs_seed2025_backbones\cnn_60ep_s2025"
